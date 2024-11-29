@@ -1,6 +1,7 @@
+from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon, Point, LineString, MultiLineString
 from shapely.ops import triangulate
 # import random
 from matplotlib.tri import Triangulation
@@ -9,14 +10,47 @@ from ipydex import IPS, activate_ips_on_exception
 
 activate_ips_on_exception()
 
-np.random.seed = 1629
+np.random.seed(1642)
+
+
+global_attribute_store = defaultdict(dict)
+
+
+# based on https://github.com/shapely/shapely/issues/1698#issuecomment-1371382145
+class MeshPolygon(Polygon):
+
+    __slots__ = Polygon.__slots__
+
+    def __new__(cls, *args, **kwargs) -> "MeshPolygon":
+        x = super().__new__(cls, *args, **kwargs)
+        x.__class__ = cls
+        return x
+
+    def edges(self):
+        edge_list = global_attribute_store[id(self)].get("edge_list", None)
+        if  edge_list is not None:
+            return edge_list
+        b = self.boundary.coords
+        global_attribute_store[id(self)]["edge_list"] = [LineString(b[k:k+2]) for k in range(len(b) - 1)]
+        return global_attribute_store[id(self)]["edge_list"]
+
+    def corners(self):
+
+        corner_list = global_attribute_store[id(self)].get("corner_list", None)
+        if corner_list is not None:
+            return corner_list
+
+        corners = [Point(c) for c in self.boundary.coords]
+        global_attribute_store[id(self)]["corner_list"] = corners
+        return global_attribute_store[id(self)]["corner_list"]
+
 
 # Function to generate a random polygon
 def generate_random_polygon(num_points=5):
     angle = np.linspace(0, 2 * np.pi, num_points, endpoint=False)
     radius = np.random.rand(num_points) * 10  # Random radius
     points = [(radius[i] * np.cos(angle[i]), radius[i] * np.sin(angle[i])) for i in range(num_points)]
-    return Polygon(points)
+    return MeshPolygon(points)
 
 # Function to create a regular grid of points within a polygon
 def create_grid_within_polygon(polygon, spacing=1):
@@ -27,8 +61,39 @@ def create_grid_within_polygon(polygon, spacing=1):
     return [point for point in grid_points if polygon.contains(Point(point))]
 
 
-def triangle_in_polygon(triangle, polygon) -> bool:
-    return polygon.contains(triangle.centroid)
+def triangle_in_polygon(triangle: MeshPolygon, polygon: MeshPolygon) -> tuple[bool, list]:
+    # if not polygon.contains(triangle.centroid):
+    #     return False, None
+
+    for edge in polygon.edges():
+        intersection = triangle.intersection(edge)
+        if intersection.is_empty or (intersection in triangle.corners()):
+            continue
+        if isinstance(intersection, LineString):
+            if intersection.length < 1e-8:
+                continue
+            plot_line_string(intersection, "ro-")
+        elif isinstance(intersection, Point):
+            plot_line_string(intersection, "go")
+        elif isinstance(intersection, MultiLineString):
+            for ls in intersection.geoms:
+                plot_line_string(ls, "mx")
+
+        else:
+            msg = "unexpected intersection type"
+            raise TypeError(msg)
+
+
+    # for corner in polygon.exterior.coords:
+    #     if triangle.contains(Point(corner)):
+    #         return False
+    return True
+
+def plot_line_string(ls: LineString, *args, **kwargs):
+    xx, yy = np.array(ls.coords).T
+    plt.plot(xx, yy, *args, **kwargs)
+
+
 
 
 def get_polygon_contour_points(polygon, n_points=10):
@@ -50,8 +115,9 @@ def get_polygon_contour_points(polygon, n_points=10):
 
     return contour_points
 
+N = 1
 # Generate 10 random polygons
-polygons = [generate_random_polygon(np.random.randint(5, 10)) for _ in range(10)]
+polygons = [generate_random_polygon(np.random.randint(5, 10)) for _ in range(1)]
 
 # Create a figure for each polygon and its triangulation
 for i, polygon in enumerate(polygons):
@@ -62,7 +128,6 @@ for i, polygon in enumerate(polygons):
 
     grid_points.extend(contour_points)
 
-
     # Perform Delaunay triangulation on the grid points
     if len(grid_points) > 2:
         triangulation = Triangulation(*zip(*grid_points))
@@ -72,12 +137,14 @@ for i, polygon in enumerate(polygons):
 
         # Plot the original polygon
         x_poly, y_poly = polygon.exterior.xy
-        plt.fill(x_poly, y_poly, alpha=0.5, fc='lightblue', ec='black', label='Polygon')
+        plt.fill(x_poly, y_poly, alpha=0.5, fc='lightblue', ec='tab:blue', lw=3, label='Polygon')
 
         # Plot the triangles and color them based on their position relative to the polygon
         for triangle in triangulation.triangles:
+
             pts = triangulation.x[triangle], triangulation.y[triangle]
-            triangle_shape = Polygon(zip(*pts))
+            triangle_shape = MeshPolygon(zip(*pts))
+            e = triangle_shape.edges()
             if triangle_in_polygon(triangle_shape, polygon):
                 plt.fill(*pts, alpha=0.3, fc='orange', ec='black')  # Inside triangles in orange
             else:
