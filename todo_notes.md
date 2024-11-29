@@ -1,0 +1,5 @@
+- [] implement segmentation
+    - [] ich weiß die Anzahl an pixeln
+    - [] ich suche den Masken-Punkt mit der geringsten x-Koordinate und geringsten y-Koordinate
+    - [] subtrahiere von dort ein rechteck (fast-quadrat) möglichst passender größe
+    - [] verteile die restlichen Pixel auf ein Rechteck und mache das gleiche wieder

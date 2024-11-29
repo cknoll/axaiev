@@ -1,0 +1,10 @@
+.vscode
+*.egg-info*
+
+# this can be used to easily backup the repo in one file
+git_bundle*.zip
+
+
+*.sqlite
+tmp*
+*.log
