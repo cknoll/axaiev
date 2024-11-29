@@ -1,3 +1,4 @@
+from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon, Point, MultiPoint, MultiPolygon, LineString
@@ -18,16 +19,19 @@ def generate_random_polygon(num_points=5):
     return Polygon(points)
 
 
-def plot_polygons(polygons: list[Polygon], **kwargs):
+def plot_polygons(ax, polygons: list[Polygon], **kwargs):
     for pg in polygons:
         if isinstance(pg, MultiPolygon):
-            plot_polygons(pg.geoms)
-        plot_polygon_like_obj(pg, **kwargs)
+            plot_polygons(ax, pg.geoms)
+        plot_polygon_like_obj(ax, pg, **kwargs)
 
 
-def plot_polygon_like_obj(obj: Polygon, **kwargs):
+def plot_polygon_like_obj(ax, obj: Polygon, **kwargs):
 
-    kwargs_used = dict(fc='lightblue', ec='tab:blue', lw=3, label='Polygon')
+    if ax is None:
+        ax = plt.gca()
+
+    kwargs_used = dict(fc='lightblue', ec='tab:blue', lw=3, label='Polygon', alpha=0.5)
     kwargs_used.update(kwargs)
     if isinstance(obj, Polygon):
         x_poly, y_poly = obj.exterior.xy
@@ -36,7 +40,7 @@ def plot_polygon_like_obj(obj: Polygon, **kwargs):
     else:
         raise TypeError
 
-    plt.fill(x_poly, y_poly, alpha=0.5, **kwargs_used)
+    ax.fill(x_poly, y_poly, **kwargs_used)
 
 
 class VoronoiMesher:
@@ -50,6 +54,7 @@ class VoronoiMesher:
         self._ip_xx = None
         self._ip_yy = None
         self.xmin, self.ymin, self.xmax, self.ymax = self.main_pg.bounds
+        self.areas = None
 
     def create_voronoi_mesh_for_polygon(self, num_points=100) -> list[Polygon]:
 
@@ -74,6 +79,7 @@ class VoronoiMesher:
 
         self.voronoi_polys = list(polygonize(lines))
 
+        self.areas = []
         pg: Polygon
         self.inner_polys: list[Polygon] = []
         for pg in self.voronoi_polys:
@@ -81,7 +87,12 @@ class VoronoiMesher:
             if intersection_pg.is_empty:
                 continue
             self.inner_polys.append(intersection_pg)
+            self.areas.append(intersection_pg.area)
 
+        self.areas = np.array(self.areas)
+
+        # ensure that the mesh cells cover main_pg with suitable precision
+        assert abs(self.main_pg.area - np.sum(self.areas)) / self.main_pg.area < 1e-5
         return self.inner_polys
 
     def create_mesh_for_inner_points(self, num_points):
@@ -101,6 +112,62 @@ class VoronoiMesher:
         return np.array(mesh_points)
 
 
+class SegmentCreator(VoronoiMesher):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.vertex_y_map = defaultdict(list)
+        self.vertex_y_map_items = None
+
+    def fill_vertex_map(self):
+
+        pg: Polygon
+        for pg in self.inner_polys:
+            for y in pg.boundary.coords.xy[1]:
+                self.vertex_y_map[y].append(pg)
+
+        self.vertex_y_map_items = list(self.vertex_y_map.items())
+
+        # sort by keys
+        self.vertex_y_map_items.sort()
+        self.vertex_y_map.clear()
+        self.vertex_y_map.update(self.vertex_y_map_items)
+
+    def do_segmentation(self, n_segments: int):
+        """
+        Decompose self.main_pg into n segments (consisting of suitable mesh cells)
+        """
+        self.fill_vertex_map()
+
+        # min_y_vrtx_idx = np.argmin(self.vor.vertices[:, 1])
+        max_y =  np.max(self.vor.vertices[:, 1])
+
+        start_pg = self._select_min_x_pg(self.vertex_y_map_items[-1][1])
+
+        plot_polygon_like_obj(None, start_pg, fc="tab:green", alpha=0.9)
+
+        # select the cell with miny, minx coordinates
+        # IPS()
+
+    def _select_min_x_pg(self, pg_list: list[Polygon]) -> Polygon:
+        xmin = float("inf")
+        pg_res: Polygon = None
+
+
+        for pg in pg_list:
+            x_pg_min = np.min(pg.boundary.coords.xy[0])
+            if x_pg_min < xmin:
+                xmin = x_pg_min
+                pg_res = pg
+
+        return pg_res
+
+
+
+
+
+
+
 if __name__ == "__main__":
 
 
@@ -109,20 +176,26 @@ if __name__ == "__main__":
     exterior = [(0, 0), (4, 0), (4, 4), (2, 3), (0, 4)]
     polygons = [Polygon(exterior, )] + [generate_random_polygon(np.random.randint(5, 10)) for _ in range(N)]
 
+    # for development select the most difficult of them:
     for main_pg in polygons:
 
-        vm = VoronoiMesher(main_pg)
-        inner_polys = vm.create_voronoi_mesh_for_polygon()
         plt.figure()
+        ax1 = plt.subplot(111)
 
-        # plot_polygons(lines, ec="tab:green")
-        plot_polygons(inner_polys, ec="tab:green")
-        # IPS()
+        sc = SegmentCreator(main_pg)
+        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=500)
+        sc.do_segmentation(n_segments=10)
 
-        plot_polygon_like_obj(main_pg)
-        # plot_polygon_like_obj(bound)
+        plot_polygons(ax1, inner_polys, ec="tab:blue", alpha=0.3)
 
-        plt.scatter(*vm.inner_points.T, color='magenta', s=10, alpha=0.5)
-        plt.scatter(*vm.boundary_coords.T, color='tab:orange', s=10, alpha=0.5)
+        plot_polygon_like_obj(ax1, main_pg, alpha=0.5)
+
+        ax1.scatter(*sc.inner_points.T, color='magenta', s=10, alpha=0.5)
+        ax1.scatter(*sc.boundary_coords.T, color='tab:orange', s=10, alpha=0.5)
+        ax1.axis("equal")
+
+        if 0:
+            ax2 = plt.subplot(122)
+            ax2.hist(sc.areas)
 
     plt.show()

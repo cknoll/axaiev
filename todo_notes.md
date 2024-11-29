@@ -1,4 +1,10 @@
 - [] implement segmentation
+    - [] maske in Polygon verwandeln
+    - [] Gesamtfläche ermitteln,
+    - [x] Polygon mit Gitter überziehen
+        - [x] sicherstellen, dass keine Zelle zu groß ist -> histogramme sehen erstmal unproblematisch aus
+    - [x] Start-Zelle finden
+    - [] Zielflächeninhalt für jedes segment bestimmen mit Toleranz
     - [] ich weiß die Anzahl an pixeln
     - [] ich suche den Masken-Punkt mit der geringsten x-Koordinate und geringsten y-Koordinate
     - [] subtrahiere von dort ein rechteck (fast-quadrat) möglichst passender größe
