@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from shapely.geometry import Polygon, Point, MultiPoint, MultiPolygon, LineString
 from shapely.ops import polygonize
 
-from scipy.spatial import Voronoi
+from scipy.spatial import Voronoi, cKDTree
 
 from ipydex import IPS, activate_ips_on_exception
 
@@ -29,26 +29,60 @@ class ShapelyPolygonMonkeyPatcher:
         Polygon.edges = cls.edges
         Polygon.corners = cls.corners
 
-    def edges(self):
+    def edges(self: Polygon, mode=None):
         ds = ShapelyPolygonMonkeyPatcher.data_store
-        edge_list = ds[self].get("edge_list", None)
+        key = ("edge_list", mode)
+        edge_list = ds[self].get(key, None)
         if  edge_list is not None:
             return edge_list
         b = self.boundary.coords
-        ds[self]["edge_list"] = [LineString(b[k:k+2]) for k in range(len(b) - 1)]
-        return ds[self]["edge_list"]
+        if mode == "tuples":
+            edges = (tuple(b[k:k+2]) for k in range(len(b) - 1))
+        elif mode == "sorted_tuples":
+            se_tup = ShapelyPolygonMonkeyPatcher.sorted_edge_tuple
+            edges = (se_tup(b[k:k+2]) for k in range(len(b) - 1))
+        else:
+            edges = [LineString(b[k:k+2]) for k in range(len(b) - 1)]
+        ds[self][key] = edges
+        return ds[self][key]
 
-    def corners(self):
+    def corners(self: Polygon, as_np: bool = True):
         ds = ShapelyPolygonMonkeyPatcher.data_store
-        corner_list = ds[self].get("corner_list", None)
+        key = ("corner_list", as_np)
+        corner_list = ds[self].get(key, None)
         if corner_list is not None:
             return corner_list
+        if as_np:
+            corners = np.array(self.boundary.coords)
+        else:
+            # list of points
+            corners = [Point(c) for c in self.boundary.coords]
+        ds[self][key] = corners
 
-        corners = [Point(c) for c in self.boundary.coords]
-        ds[self]["corner_list"] = corners
-        return ds[self]["corner_list"]
+        return ds[self][key]
+
+    @staticmethod
+    def sorted_edge_tuple(line_points):
+        """
+        map both (p1, p2) and (p2, p1) to (p1, p2)
+        """
+        p1, p2 = line_points
+
+        if p1[0] < p2[0]:
+            return (p1, p2)
+        elif p2[0] < p1[0]:
+            return (p2, p1)
+        else:
+            assert p2[0] == p1[0]
+            if p1[1] < p2[1]:
+                return (p1, p2)
+            else:
+                # p2[1] < p1[1] and p2[1] == p1[1]
+                return (p2, p1)
 
 ShapelyPolygonMonkeyPatcher.doit()
+
+
 
 
 # #############################################################################
@@ -165,9 +199,41 @@ class SegmentCreator(VoronoiMesher):
 
     def _fill_neighbor_map(self):
 
+        self.inner_polys = self.inner_polys[:2]
+
+        all_corners = []
         for pg in self.inner_polys:
-            for edge in pg.edges():
+            all_corners.extend(pg.corners(as_np=True))
+
+        all_corners = np.array(all_corners)
+
+        tree = cKDTree(all_corners)
+
+        from scipy.spatial.distance import pdist
+
+        for c in all_corners:
+            idcs = tree.query_ball_point(c, 0.001)
+            same_points = all_corners[idcs]
+            sum_dist = sum(pdist(same_points))
+            IPS(sum_dist > 0)
+
+        all_edges = []
+        for pg in self.inner_polys:
+            for edge in pg.edges(mode="sorted_tuples"):
+                all_edges.append(edge)
                 self.edge_pg_map[edge].append(pg)
+
+        line_edges = []
+        for line in self.lines:
+            line_edges.append(tuple(line.coords))
+
+        ae = np.array(all_edges).reshape(-1, 4)
+        ae2 = np.array(all_edges + line_edges).reshape(-1, 4)
+        le = np.array(line_edges).reshape(-1, 4)
+        dists = pdist(ae)
+        dists2 = pdist(ae2)
+        IPS()
+        exit()
 
         for pg in self.inner_polys:
             potential_neighbors = []
@@ -238,7 +304,7 @@ if __name__ == "__main__":
     polygons = [Polygon(exterior, )] + [generate_random_polygon(np.random.randint(5, 10)) for _ in range(N)]
 
     # for development select the most difficult of them:
-    for main_pg in polygons:
+    for main_pg in polygons[:1]:
 
         plt.figure()
         ax1 = plt.subplot(111)
@@ -247,7 +313,7 @@ if __name__ == "__main__":
         inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=500)
         sc.do_segmentation(n_segments=10)
 
-        plot_polygons(ax1, inner_polys, ec="tab:blue", alpha=0.3)
+        plot_polygons(ax1, sc.inner_polys, ec="tab:blue", alpha=0.3)
 
         plot_polygon_like_obj(ax1, main_pg, alpha=0.5)
 
