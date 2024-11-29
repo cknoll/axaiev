@@ -10,6 +10,41 @@ from ipydex import IPS, activate_ips_on_exception
 
 activate_ips_on_exception()
 
+# #############################################################################
+# shapely Polygon monkey patch section
+
+# Rationale: Polygon-is not recommended to subclass.
+# see https://github.com/shapely/shapely/issues/1698
+# -> We add methods via monkey-patch
+
+# #############################################################################
+
+global_attribute_store = defaultdict(dict)
+
+def edges(self):
+    edge_list = global_attribute_store[self].get("edge_list", None)
+    if  edge_list is not None:
+        return edge_list
+    b = self.boundary.coords
+    global_attribute_store[self]["edge_list"] = [LineString(b[k:k+2]) for k in range(len(b) - 1)]
+    return global_attribute_store[self]["edge_list"]
+
+Polygon.edges = edges
+
+
+def corners(self):
+
+    corner_list = global_attribute_store[self].get("corner_list", None)
+    if corner_list is not None:
+        return corner_list
+
+    corners = [Point(c) for c in self.boundary.coords]
+    global_attribute_store[self]["corner_list"] = corners
+    return global_attribute_store[self]["corner_list"]
+
+Polygon.corners = corners
+
+# #############################################################################
 
 # Function to generate a random polygon
 def generate_random_polygon(num_points=5):
@@ -54,6 +89,7 @@ class VoronoiMesher:
         self._ip_xx = None
         self._ip_yy = None
         self.xmin, self.ymin, self.xmax, self.ymax = self.main_pg.bounds
+        self.lines = None
         self.areas = None
 
     def create_voronoi_mesh_for_polygon(self, num_points=100) -> list[Polygon]:
@@ -75,9 +111,9 @@ class VoronoiMesher:
         self.all_coords = np.concatenate((self.boundary_coords, self.inner_points))
 
         self.vor = Voronoi(points=self.all_coords)
-        lines = [LineString(self.vor.vertices[line]) for line in self.vor.ridge_vertices if -1 not in line]
+        self.lines = [LineString(self.vor.vertices[line]) for line in self.vor.ridge_vertices if -1 not in line]
 
-        self.voronoi_polys = list(polygonize(lines))
+        self.voronoi_polys = list(polygonize(self.lines))
 
         self.areas = []
         pg: Polygon
@@ -118,8 +154,25 @@ class SegmentCreator(VoronoiMesher):
 
         self.vertex_y_map = defaultdict(list)
         self.vertex_y_map_items = None
+        self.edge_pg_map = defaultdict(list)
 
-    def fill_vertex_map(self):
+    def _fill_neighbor_map(self):
+
+        for pg in self.inner_polys:
+            for edge in pg.edges():
+                self.edge_pg_map[edge].append(pg)
+
+        for pg in self.inner_polys:
+            potential_neighbors = []
+            for edge in pg.edges():
+                # all polygons which share an edge
+                potential_neighbors.extend(self.edge_pg_map[edge])
+            potential_neighbors = set(potential_neighbors)
+
+            IPS()
+            exit()
+
+    def _fill_vertex_map(self):
 
         pg: Polygon
         for pg in self.inner_polys:
@@ -137,7 +190,8 @@ class SegmentCreator(VoronoiMesher):
         """
         Decompose self.main_pg into n segments (consisting of suitable mesh cells)
         """
-        self.fill_vertex_map()
+        self._fill_vertex_map()
+        self._fill_neighbor_map()
 
         # min_y_vrtx_idx = np.argmin(self.vor.vertices[:, 1])
         max_y =  np.max(self.vor.vertices[:, 1])

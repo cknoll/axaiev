@@ -4,6 +4,8 @@
     - [x] Polygon mit Gitter überziehen
         - [x] sicherstellen, dass keine Zelle zu groß ist -> histogramme sehen erstmal unproblematisch aus
     - [x] Start-Zelle finden
+    - [x] Spannungs-Minimierung (Verhältnis von Umfang zu Fläche) als rekursive Baumsuche implementieren
+        - [] Jeder Polygon muss wissen wer seine Nachbarn sind
     - [] Zielflächeninhalt für jedes segment bestimmen mit Toleranz
     - [] ich weiß die Anzahl an pixeln
     - [] ich suche den Masken-Punkt mit der geringsten x-Koordinate und geringsten y-Koordinate
