@@ -13,36 +13,43 @@ activate_ips_on_exception()
 # #############################################################################
 # shapely Polygon monkey patch section
 
-# Rationale: Polygon-is not recommended to subclass.
-# see https://github.com/shapely/shapely/issues/1698
-# -> We add methods via monkey-patch
 
 # #############################################################################
 
-global_attribute_store = defaultdict(dict)
+class ShapelyPolygonMonkeyPatcher:
+    """
+    # Rationale: Polygon-is not recommended to subclass, see [1].
+    # -> We add methods via monkey-patching
+    """
 
-def edges(self):
-    edge_list = global_attribute_store[self].get("edge_list", None)
-    if  edge_list is not None:
-        return edge_list
-    b = self.boundary.coords
-    global_attribute_store[self]["edge_list"] = [LineString(b[k:k+2]) for k in range(len(b) - 1)]
-    return global_attribute_store[self]["edge_list"]
+    data_store = defaultdict(dict)
 
-Polygon.edges = edges
+    @classmethod
+    def doit(cls):
+        Polygon.edges = cls.edges
+        Polygon.corners = cls.corners
 
+    def edges(self):
+        ds = ShapelyPolygonMonkeyPatcher.data_store
+        edge_list = ds[self].get("edge_list", None)
+        if  edge_list is not None:
+            return edge_list
+        b = self.boundary.coords
+        ds[self]["edge_list"] = [LineString(b[k:k+2]) for k in range(len(b) - 1)]
+        return ds[self]["edge_list"]
 
-def corners(self):
+    def corners(self):
+        ds = ShapelyPolygonMonkeyPatcher.data_store
+        corner_list = ds[self].get("corner_list", None)
+        if corner_list is not None:
+            return corner_list
 
-    corner_list = global_attribute_store[self].get("corner_list", None)
-    if corner_list is not None:
-        return corner_list
+        corners = [Point(c) for c in self.boundary.coords]
+        ds[self]["corner_list"] = corners
+        return ds[self]["corner_list"]
 
-    corners = [Point(c) for c in self.boundary.coords]
-    global_attribute_store[self]["corner_list"] = corners
-    return global_attribute_store[self]["corner_list"]
+ShapelyPolygonMonkeyPatcher.doit()
 
-Polygon.corners = corners
 
 # #############################################################################
 
