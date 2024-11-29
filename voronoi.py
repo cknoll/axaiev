@@ -10,6 +10,14 @@ from ipydex import IPS, activate_ips_on_exception
 activate_ips_on_exception()
 
 
+# Function to generate a random polygon
+def generate_random_polygon(num_points=5):
+    angle = np.linspace(0, 2 * np.pi, num_points, endpoint=False)
+    radius = np.random.rand(num_points) * 10  # Random radius
+    points = [(radius[i] * np.cos(angle[i]), radius[i] * np.sin(angle[i])) for i in range(num_points)]
+    return Polygon(points)
+
+
 def plot_polygons(polygons: list[Polygon], **kwargs):
     for pg in polygons:
         if isinstance(pg, MultiPolygon):
@@ -95,23 +103,26 @@ class VoronoiMesher:
 
 if __name__ == "__main__":
 
-    # Example usage
-    # Create an arbitrary polygon (non-convex in this case)
+
+    np.random.seed(1642)
+    N = 5
     exterior = [(0, 0), (4, 0), (4, 4), (2, 3), (0, 4)]
-    hole = [] # [(1, 1), (2, 1), (2, 2), (1, 2)]
-    main_pg = Polygon(exterior, [hole])
+    polygons = [Polygon(exterior, )] + [generate_random_polygon(np.random.randint(5, 10)) for _ in range(N)]
 
-    vm = VoronoiMesher(main_pg)
-    inner_polys = vm.create_voronoi_mesh_for_polygon()
+    for main_pg in polygons:
 
-    # plot_polygons(lines, ec="tab:green")
-    plot_polygons(inner_polys, ec="tab:green")
-    # IPS()
+        vm = VoronoiMesher(main_pg)
+        inner_polys = vm.create_voronoi_mesh_for_polygon()
+        plt.figure()
 
-    plot_polygon_like_obj(main_pg)
-    # plot_polygon_like_obj(bound)
+        # plot_polygons(lines, ec="tab:green")
+        plot_polygons(inner_polys, ec="tab:green")
+        # IPS()
 
-    plt.scatter(*vm.inner_points.T, color='magenta', s=10, alpha=0.5)
-    plt.scatter(*vm.boundary_coords.T, color='tab:orange', s=10, alpha=0.5)
+        plot_polygon_like_obj(main_pg)
+        # plot_polygon_like_obj(bound)
+
+        plt.scatter(*vm.inner_points.T, color='magenta', s=10, alpha=0.5)
+        plt.scatter(*vm.boundary_coords.T, color='tab:orange', s=10, alpha=0.5)
 
     plt.show()
