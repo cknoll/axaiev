@@ -99,7 +99,7 @@ def generate_random_polygon(num_points=5):
 def plot_polygons(ax, polygons: list[Polygon], **kwargs):
     for pg in polygons:
         if isinstance(pg, MultiPolygon):
-            plot_polygons(ax, pg.geoms)
+            plot_polygons(ax, pg.geoms, **kwargs)
         plot_polygon_like_obj(ax, pg, **kwargs)
 
 
@@ -114,6 +114,8 @@ def plot_polygon_like_obj(ax, obj: Polygon, **kwargs):
         x_poly, y_poly = obj.exterior.xy
     elif isinstance(obj, LineString):
         x_poly, y_poly = obj.xy
+    elif isinstance(obj, MultiPolygon):
+        return plot_polygons(ax, obj.geoms, **kwargs)
     else:
         raise TypeError
 
@@ -202,8 +204,12 @@ class DebugProtocolMixin:
 
     def visualize_debug_protocol(self, base_name="poly"):
         from tqdm import tqdm
-        plot_polygon_like_obj(None, self.main_pg, alpha=0.1)
-        plot_polygons(None, self.inner_polys, fc=None, ec="black", lw=0.5, alpha=0.3)
+        def plot_background():
+            plt.cla()
+            plot_polygon_like_obj(None, self.main_pg, alpha=0.1)
+            plot_polygons(None, self.inner_polys, fc=None, ec="black", lw=0.5, alpha=0.3)
+
+        plot_background()
         n_corners = len(self.main_pg.exterior.coords)
         i = 0
         plt.title(f"N = {n_corners}, #Segments = {self.n_segments} ({i:04d})")
@@ -212,18 +218,24 @@ class DebugProtocolMixin:
         plt.savefig(fpath.format(0))
 
         sec_cntr = 1
-        for i, (msg, obj) in tqdm(enumerate(self.debug_protocol[:50], start=1)):
+        for i, (msg, obj) in tqdm(list(enumerate(self.debug_protocol, start=1))):
 
             if msg == "start":
+                plot_background()
                 plot_polygon_like_obj(None, obj, fc="tab:green", ec=None, alpha=1)
+
+                for idx in range(sec_cntr - 1):
+                    segment_pg = self.segments[idx]
+                    plot_polygon_like_obj(None, segment_pg, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1)
+
             elif msg == "test":
                 plot_polygon_like_obj(None, obj, fc="tab:orange", ec=None, alpha=1)
             elif msg == "pick":
                 plot_polygon_like_obj(None, obj, fc="tab:green", ec=None, alpha=1)
             elif msg == "candidates":
                 plot_polygons(None, obj, fc="tab:purple", ec=None, alpha=1)
-            elif msg == "final segment":
-                plot_polygon_like_obj(None, obj, fc="tab:blue", ec=None, alpha=1)
+            elif msg == "new segment":
+                plot_polygon_like_obj(None, obj, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1)
                 sec_cntr += 1
 
             plt.title(f"N = {n_corners}, Segment {sec_cntr}/{self.n_segments} ({i:04d})")
@@ -244,10 +256,10 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self.target_segment_area: float = None
 
         self.segments = []
-        self.current_partial_segment_list = []
+        self.current_partial_segment_list: list = None
         self.partial_segment_pg = None
         self.current_rest_pg = None
-        self.candidates_pgs = []
+        self.candidates_pgs: list = None
         self.already_picked_pgs: dict[Polygon: bool] = {}
 
 
@@ -286,6 +298,31 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self.vertex_y_map.clear()
         self.vertex_y_map.update(self.vertex_y_map_items)
 
+    def _update_vertex_map_items(self):
+        """
+        Iterate over nested lists and then pop those elements which have become invalid.
+        Sorting is not changed
+        """
+        pop_idcs = []
+        for idx, (y, pg_list) in enumerate(self.vertex_y_map_items):
+            pop_pg_idcs = []
+            for pg_idx, pg in enumerate(pg_list):
+                if self.already_picked_pgs.get(pg):
+                    pop_pg_idcs.append(pg_idx)
+
+            # pop those polygons which have been picked
+            for pg_idx in pop_pg_idcs[::-1]:
+                pg_list.pop(pg_idx)
+
+            # register empty lists for popping
+            if not pg_list:
+                pop_idcs.append(idx)
+
+        # pop those items where the lists have become empty
+        for idx in pop_idcs[::-1]:
+            self.vertex_y_map_items.pop(idx)
+
+
     def do_segmentation(self, n_segments: int):
         """
         Decompose self.main_pg into n segments (consisting of suitable mesh cells)
@@ -295,12 +332,13 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self._fill_vertex_map()
         self._fill_neighbor_map()
 
-        # min_y_vrtx_idx = np.argmin(self.vor.vertices[:, 1])
-        max_y =  np.max(self.vor.vertices[:, 1])
+        while len(self.segments) < self.n_segments:
+            start_pg = self._select_min_x_pg(self.vertex_y_map_items[-1][1])
+            self.current_rest_pg = self.main_pg
+            self.construct_segment(start_pg)
+            self._update_vertex_map_items()
 
-        start_pg = self._select_min_x_pg(self.vertex_y_map_items[-1][1])
-        self.current_rest_pg = self.main_pg
-        self.construct_segment(start_pg)
+        self.visualize_debug_protocol()
 
         # plot_polygon_like_obj(None, start_pg, fc="tab:green", ec="red", alpha=0.9)
 
@@ -308,8 +346,9 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
         self.already_picked_pgs[start_pg] = True
 
-        self.current_partial_segment_list.append(start_pg)
-        self.candidates_pgs.extend(self.pg_neighbor_map[start_pg])
+        self.current_partial_segment_list = [start_pg]
+        self.candidates_pgs = []
+        self._add_neighbors_to_candidates(start_pg)
 
         self.debug("start", start_pg)
         self.debug("candidates", self.candidates_pgs)
@@ -317,12 +356,8 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
             break_flag = self._optimization_loop_body()
             if break_flag:
                 break
-        self.debug("final segment", self.partial_segment_pg)
+        self.debug("new segment", self.partial_segment_pg)
         self.segments.append(self.partial_segment_pg)
-
-        self.visualize_debug_protocol()
-
-        exit()
 
     def _optimization_loop_body(self) -> bool:
         """
@@ -360,15 +395,18 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self.current_rest_pg = self.current_rest_pg.difference(picked_candidate_pg)
         self.debug("pick", picked_candidate_pg)
 
-        for pg in self.pg_neighbor_map[picked_candidate_pg]:
-            if self.already_picked_pgs.get(pg) or pg in self.candidates_pgs:
-                continue
-            self.candidates_pgs.append(pg)
+        self._add_neighbors_to_candidates(picked_candidate_pg)
 
         self.debug("candidates", self.candidates_pgs)
 
         # do not break the loop
         return False
+
+    def _add_neighbors_to_candidates(self, picked_pg):
+        for pg in self.pg_neighbor_map[picked_pg]:
+            if self.already_picked_pgs.get(pg) or pg in self.candidates_pgs:
+                continue
+            self.candidates_pgs.append(pg)
 
     def cost_func(self, partial_segment: Polygon):
 
@@ -409,7 +447,7 @@ if __name__ == "__main__":
         ax1 = plt.subplot(111)
 
         sc = SegmentCreator(main_pg)
-        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=500)
+        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=50)
         sc.do_segmentation(n_segments=10)
 
         plot_polygons(ax1, sc.inner_polys, ec="tab:blue", alpha=0.3)

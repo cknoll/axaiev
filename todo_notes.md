@@ -10,9 +10,11 @@
         - [x] Umfang und Fläche berechnen
         - [x] Ergebnis für potentiellen Kandidaten berechnen.
         - [x] optimalen Kandidaten auswählen
-        - [] debuggen
+        - [x] debuggen
             - [x] debug-visualisierung bauen
-            - [] Fehler finden
+            - [x] Fehler finden
+            - [x] debug-visualisierung verbessern
+        - [x] start_pg für rest_pg finden.
     - [] Zielflächeninhalt für jedes segment bestimmen mit Toleranz
     - [] ich weiß die Anzahl an pixeln
     - [] ich suche den Masken-Punkt mit der geringsten x-Koordinate und geringsten y-Koordinate
