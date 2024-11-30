@@ -1,4 +1,5 @@
 import os
+import copy
 from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
@@ -195,10 +196,14 @@ class DebugProtocolMixin:
         if not hasattr(self, "debug_protocol"):
             self.debug_protocol = []
 
-        self.debug_protocol.append(args)
+        # store a snapshot of relevant data structures
+        new_args = [copy.copy(arg) for arg in args]
+        self.debug_protocol.append(new_args)
 
     def visualize_debug_protocol(self, base_name="poly"):
-        plot_polygon_like_obj(None, self.main_pg, alpha=0.9)
+        from tqdm import tqdm
+        plot_polygon_like_obj(None, self.main_pg, alpha=0.1)
+        plot_polygons(None, self.inner_polys, fc=None, ec="black", lw=0.5, alpha=0.3)
         n_corners = len(self.main_pg.exterior.coords)
         i = 0
         plt.title(f"N = {n_corners}, #Segments = {self.n_segments} ({i:04d})")
@@ -206,25 +211,23 @@ class DebugProtocolMixin:
         fpath = os.path.join("img", base_name + "_{:04d}.png")
         plt.savefig(fpath.format(0))
 
-        for i, (msg, obj) in enumerate(self.debug_protocol, start=1):
+        sec_cntr = 1
+        for i, (msg, obj) in tqdm(enumerate(self.debug_protocol[:50], start=1)):
 
             if msg == "start":
-                plot_polygon_like_obj(None, obj, fc="tab:green", alpha=1)
+                plot_polygon_like_obj(None, obj, fc="tab:green", ec=None, alpha=1)
             elif msg == "test":
-                plot_polygon_like_obj(None, obj, fc="tab:orange", alpha=1)
+                plot_polygon_like_obj(None, obj, fc="tab:orange", ec=None, alpha=1)
             elif msg == "pick":
-                plot_polygon_like_obj(None, obj, fc="tab:green", alpha=1)
+                plot_polygon_like_obj(None, obj, fc="tab:green", ec=None, alpha=1)
+            elif msg == "candidates":
+                plot_polygons(None, obj, fc="tab:purple", ec=None, alpha=1)
             elif msg == "final segment":
-                plot_polygon_like_obj(None, obj, fc="tab:blue", alpha=1)
+                plot_polygon_like_obj(None, obj, fc="tab:blue", ec=None, alpha=1)
+                sec_cntr += 1
 
-            plt.title(f"N = {n_corners}, #Segments = {self.n_segments} ({i:04d})")
+            plt.title(f"N = {n_corners}, Segment {sec_cntr}/{self.n_segments} ({i:04d})")
             plt.savefig(fpath.format(i))
-
-
-
-
-
-
 
 
 class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
@@ -303,10 +306,13 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
     def construct_segment(self, start_pg):
 
+        self.already_picked_pgs[start_pg] = True
+
         self.current_partial_segment_list.append(start_pg)
         self.candidates_pgs.extend(self.pg_neighbor_map[start_pg])
 
         self.debug("start", start_pg)
+        self.debug("candidates", self.candidates_pgs)
         while True:
             break_flag = self._optimization_loop_body()
             if break_flag:
@@ -358,6 +364,8 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
             if self.already_picked_pgs.get(pg) or pg in self.candidates_pgs:
                 continue
             self.candidates_pgs.append(pg)
+
+        self.debug("candidates", self.candidates_pgs)
 
         # do not break the loop
         return False
