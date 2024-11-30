@@ -1,9 +1,9 @@
+import os
 from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon, Point, MultiPoint, MultiPolygon, LineString
-from shapely.ops import polygonize
-
+from shapely.ops import polygonize, unary_union
 from scipy.spatial import Voronoi, cKDTree
 
 from ipydex import IPS, activate_ips_on_exception
@@ -167,6 +167,7 @@ class VoronoiMesher:
             self.areas.append(intersection_pg.area)
 
         self.areas = np.array(self.areas)
+        self.avg_cell_area = np.average(self.areas)
 
         # ensure that the mesh cells cover main_pg with suitable precision
         assert abs(self.main_pg.area - np.sum(self.areas)) / self.main_pg.area < 1e-5
@@ -189,7 +190,44 @@ class VoronoiMesher:
         return np.array(mesh_points)
 
 
-class SegmentCreator(VoronoiMesher):
+class DebugProtocolMixin:
+    def debug(self, *args):
+        if not hasattr(self, "debug_protocol"):
+            self.debug_protocol = []
+
+        self.debug_protocol.append(args)
+
+    def visualize_debug_protocol(self, base_name="poly"):
+        plot_polygon_like_obj(None, self.main_pg, alpha=0.9)
+        n_corners = len(self.main_pg.exterior.coords)
+        i = 0
+        plt.title(f"N = {n_corners}, #Segments = {self.n_segments} ({i:04d})")
+
+        fpath = os.path.join("img", base_name + "_{:04d}.png")
+        plt.savefig(fpath.format(0))
+
+        for i, (msg, obj) in enumerate(self.debug_protocol, start=1):
+
+            if msg == "start":
+                plot_polygon_like_obj(None, obj, fc="tab:green", alpha=1)
+            elif msg == "test":
+                plot_polygon_like_obj(None, obj, fc="tab:orange", alpha=1)
+            elif msg == "pick":
+                plot_polygon_like_obj(None, obj, fc="tab:green", alpha=1)
+            elif msg == "final segment":
+                plot_polygon_like_obj(None, obj, fc="tab:blue", alpha=1)
+
+            plt.title(f"N = {n_corners}, #Segments = {self.n_segments} ({i:04d})")
+            plt.savefig(fpath.format(i))
+
+
+
+
+
+
+
+
+class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -197,6 +235,18 @@ class SegmentCreator(VoronoiMesher):
         self.vertex_y_map_items = None
         self.edge_pg_map = defaultdict(list)
         self.pg_neighbor_map = {}
+
+        self.n_segments: int = None
+        self.main_pg_area = self.main_pg.area
+        self.target_segment_area: float = None
+
+        self.segments = []
+        self.current_partial_segment_list = []
+        self.partial_segment_pg = None
+        self.current_rest_pg = None
+        self.candidates_pgs = []
+        self.already_picked_pgs: dict[Polygon: bool] = {}
+
 
     def _fill_neighbor_map(self):
 
@@ -219,16 +269,6 @@ class SegmentCreator(VoronoiMesher):
             potential_neighbors.remove(pg)
             self.pg_neighbor_map[pg] = potential_neighbors
 
-        # this is only for testing
-        q = self.inner_polys[:]
-        q.sort(key=lambda p: len(self.pg_neighbor_map[p]))
-
-        for pg in q:
-            if len(self.pg_neighbor_map[pg]) > 2:
-                break
-            plot_polygon_like_obj(None, pg, fc="magenta")
-        IPS()
-
     def _fill_vertex_map(self):
 
         pg: Polygon
@@ -247,6 +287,8 @@ class SegmentCreator(VoronoiMesher):
         """
         Decompose self.main_pg into n segments (consisting of suitable mesh cells)
         """
+        self.n_segments = n_segments
+        self.target_segment_area = self.main_pg_area / n_segments
         self._fill_vertex_map()
         self._fill_neighbor_map()
 
@@ -254,16 +296,86 @@ class SegmentCreator(VoronoiMesher):
         max_y =  np.max(self.vor.vertices[:, 1])
 
         start_pg = self._select_min_x_pg(self.vertex_y_map_items[-1][1])
+        self.current_rest_pg = self.main_pg
+        self.construct_segment(start_pg)
 
-        plot_polygon_like_obj(None, start_pg, fc="tab:green", alpha=0.9)
+        # plot_polygon_like_obj(None, start_pg, fc="tab:green", ec="red", alpha=0.9)
 
-        # select the cell with miny, minx coordinates
-        # IPS()
+    def construct_segment(self, start_pg):
+
+        self.current_partial_segment_list.append(start_pg)
+        self.candidates_pgs.extend(self.pg_neighbor_map[start_pg])
+
+        self.debug("start", start_pg)
+        while True:
+            break_flag = self._optimization_loop_body()
+            if break_flag:
+                break
+        self.debug("final segment", self.partial_segment_pg)
+        self.segments.append(self.partial_segment_pg)
+
+        self.visualize_debug_protocol()
+
+        exit()
+
+    def _optimization_loop_body(self) -> bool:
+        """
+        One turn of the optimization loop
+        """
+
+        self.partial_segment_pg = unary_union(self.current_partial_segment_list)
+
+        # estimate area after adding the next cell
+        est_relative_segment_area = (self.partial_segment_pg.area + self.avg_cell_area)/self.target_segment_area
+
+        if est_relative_segment_area > 1:
+            # this segment would be too big with additional cell ()
+            return True
+
+        if not self.candidates_pgs:
+            # no more candidates to choose from
+            return True
+
+        best_cost = float("inf")
+        best_idx = None
+        for idx, candidate_pg in enumerate(self.candidates_pgs):
+            candidate_partial_segment = unary_union(self.current_partial_segment_list + [candidate_pg])
+            candidate_cost = self.cost_func(candidate_partial_segment)
+
+            self.debug("test", candidate_pg)
+
+            if candidate_cost < best_cost:
+                best_cost = candidate_cost
+                best_idx = idx
+
+        picked_candidate_pg = self.candidates_pgs.pop(best_idx)
+        self.already_picked_pgs[picked_candidate_pg] = True
+        self.current_partial_segment_list.append(picked_candidate_pg)
+        self.current_rest_pg = self.current_rest_pg.difference(picked_candidate_pg)
+        self.debug("pick", picked_candidate_pg)
+
+        for pg in self.pg_neighbor_map[picked_candidate_pg]:
+            if self.already_picked_pgs.get(pg) or pg in self.candidates_pgs:
+                continue
+            self.candidates_pgs.append(pg)
+
+        # do not break the loop
+        return False
+
+    def cost_func(self, partial_segment: Polygon):
+
+        rest_pg: Polygon = self.current_rest_pg.difference(partial_segment)
+
+        cost = rest_pg.length/rest_pg.area + partial_segment.length/partial_segment.area
+        return cost
 
     def _select_min_x_pg(self, pg_list: list[Polygon]) -> Polygon:
+        """
+        From a sequence of polygons (which might be those with max y  vertices) select
+        the one with smallest x value.
+        """
         xmin = float("inf")
         pg_res: Polygon = None
-
 
         for pg in pg_list:
             x_pg_min = np.min(pg.boundary.coords.xy[0])
@@ -272,11 +384,6 @@ class SegmentCreator(VoronoiMesher):
                 pg_res = pg
 
         return pg_res
-
-
-
-
-
 
 
 if __name__ == "__main__":
@@ -288,7 +395,7 @@ if __name__ == "__main__":
     polygons = [Polygon(exterior, )] + [generate_random_polygon(np.random.randint(5, 10)) for _ in range(N)]
 
     # for development select the most difficult of them:
-    for main_pg in polygons[:1]:
+    for main_pg in polygons[2:3]:
 
         plt.figure()
         ax1 = plt.subplot(111)

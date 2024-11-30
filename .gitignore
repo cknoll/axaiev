@@ -8,3 +8,4 @@ git_bundle*.zip
 *.sqlite
 tmp*
 *.log
+img/*
