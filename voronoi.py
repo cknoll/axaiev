@@ -84,8 +84,6 @@ class ShapelyPolygonMonkeyPatcher:
 ShapelyPolygonMonkeyPatcher.doit()
 
 
-
-
 # #############################################################################
 
 # Function to generate a random polygon
@@ -219,7 +217,7 @@ class DebugProtocolMixin:
 
         sec_cntr = 1
         for i, (msg, obj) in tqdm(list(enumerate(self.debug_protocol, start=1))):
-
+            sec_cntr_diff = 0
             if msg == "start":
                 plot_background()
                 plot_polygon_like_obj(None, obj, fc="tab:green", ec=None, alpha=1)
@@ -227,6 +225,8 @@ class DebugProtocolMixin:
                 for idx in range(sec_cntr - 1):
                     segment_pg = self.segments[idx]
                     plot_polygon_like_obj(None, segment_pg, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1)
+                    centroid_xy = np.array(segment_pg.centroid.coords).squeeze()
+                    plt.text(*centroid_xy, str(idx + 1))
 
             elif msg == "test":
                 plot_polygon_like_obj(None, obj, fc="tab:orange", ec=None, alpha=1)
@@ -237,8 +237,9 @@ class DebugProtocolMixin:
             elif msg == "new segment":
                 plot_polygon_like_obj(None, obj, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1)
                 sec_cntr += 1
+                sec_cntr_diff = 1  # increment title not yet
 
-            plt.title(f"N = {n_corners}, Segment {sec_cntr}/{self.n_segments} ({i:04d})")
+            plt.title(f"N = {n_corners}, Segment {sec_cntr - sec_cntr_diff}/{self.n_segments} ({i:04d})")
             plt.savefig(fpath.format(i))
 
 
@@ -261,7 +262,6 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self.current_rest_pg = None
         self.candidates_pgs: list = None
         self.already_picked_pgs: dict[Polygon: bool] = {}
-
 
     def _fill_neighbor_map(self):
 
@@ -322,7 +322,6 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         for idx in pop_idcs[::-1]:
             self.vertex_y_map_items.pop(idx)
 
-
     def do_segmentation(self, n_segments: int):
         """
         Decompose self.main_pg into n segments (consisting of suitable mesh cells)
@@ -332,12 +331,13 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self._fill_vertex_map()
         self._fill_neighbor_map()
 
-        while len(self.segments) < self.n_segments:
+        while len(self.segments) < self.n_segments - 1:
             start_pg = self._select_min_x_pg(self.vertex_y_map_items[-1][1])
             self.current_rest_pg = self.main_pg
             self.construct_segment(start_pg)
             self._update_vertex_map_items()
 
+        self.construct_last_segment()
         self.visualize_debug_protocol()
 
         # plot_polygon_like_obj(None, start_pg, fc="tab:green", ec="red", alpha=0.9)
@@ -356,6 +356,15 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
             break_flag = self._optimization_loop_body()
             if break_flag:
                 break
+        self.debug("new segment", self.partial_segment_pg)
+        self.segments.append(self.partial_segment_pg)
+
+    def construct_last_segment(self):
+        self.current_partial_segment_list = [
+            pg for pg in self.inner_polys if not self.already_picked_pgs.get(pg)
+        ]
+
+        self.partial_segment_pg = unary_union(self.current_partial_segment_list)
         self.debug("new segment", self.partial_segment_pg)
         self.segments.append(self.partial_segment_pg)
 
@@ -447,7 +456,7 @@ if __name__ == "__main__":
         ax1 = plt.subplot(111)
 
         sc = SegmentCreator(main_pg)
-        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=50)
+        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=200)
         sc.do_segmentation(n_segments=10)
 
         plot_polygons(ax1, sc.inner_polys, ec="tab:blue", alpha=0.3)
