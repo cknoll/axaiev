@@ -37,10 +37,10 @@ class ShapelyPolygonMonkeyPatcher:
             return edge_list
         b = self.boundary.coords
         if mode == "tuples":
-            edges = (tuple(b[k:k+2]) for k in range(len(b) - 1))
+            edges = [tuple(b[k:k+2]) for k in range(len(b) - 1)]
         elif mode == "sorted_tuples":
             se_tup = ShapelyPolygonMonkeyPatcher.sorted_edge_tuple
-            edges = (se_tup(b[k:k+2]) for k in range(len(b) - 1))
+            edges = [se_tup(b[k:k+2]) for k in range(len(b) - 1)]
         else:
             edges = [LineString(b[k:k+2]) for k in range(len(b) - 1)]
         ds[self][key] = edges
@@ -196,54 +196,38 @@ class SegmentCreator(VoronoiMesher):
         self.vertex_y_map = defaultdict(list)
         self.vertex_y_map_items = None
         self.edge_pg_map = defaultdict(list)
+        self.pg_neighbor_map = {}
 
     def _fill_neighbor_map(self):
 
-        self.inner_polys = self.inner_polys[:2]
+        # self.inner_polys = self.inner_polys[:2]
 
         all_corners = []
         for pg in self.inner_polys:
             all_corners.extend(pg.corners(as_np=True))
 
-        all_corners = np.array(all_corners)
-
-        tree = cKDTree(all_corners)
-
-        from scipy.spatial.distance import pdist
-
-        for c in all_corners:
-            idcs = tree.query_ball_point(c, 0.001)
-            same_points = all_corners[idcs]
-            sum_dist = sum(pdist(same_points))
-            IPS(sum_dist > 0)
-
-        all_edges = []
         for pg in self.inner_polys:
             for edge in pg.edges(mode="sorted_tuples"):
-                all_edges.append(edge)
                 self.edge_pg_map[edge].append(pg)
-
-        line_edges = []
-        for line in self.lines:
-            line_edges.append(tuple(line.coords))
-
-        ae = np.array(all_edges).reshape(-1, 4)
-        ae2 = np.array(all_edges + line_edges).reshape(-1, 4)
-        le = np.array(line_edges).reshape(-1, 4)
-        dists = pdist(ae)
-        dists2 = pdist(ae2)
-        IPS()
-        exit()
 
         for pg in self.inner_polys:
             potential_neighbors = []
-            for edge in pg.edges():
+            for edge in pg.edges(mode="sorted_tuples"):
                 # all polygons which share an edge
                 potential_neighbors.extend(self.edge_pg_map[edge])
             potential_neighbors = set(potential_neighbors)
+            potential_neighbors.remove(pg)
+            self.pg_neighbor_map[pg] = potential_neighbors
 
-            IPS()
-            exit()
+        # this is only for testing
+        q = self.inner_polys[:]
+        q.sort(key=lambda p: len(self.pg_neighbor_map[p]))
+
+        for pg in q:
+            if len(self.pg_neighbor_map[pg]) > 2:
+                break
+            plot_polygon_like_obj(None, pg, fc="magenta")
+        IPS()
 
     def _fill_vertex_map(self):
 
