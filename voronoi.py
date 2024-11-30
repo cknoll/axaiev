@@ -441,6 +441,11 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         return pg_res
 
 
+def render_video():
+    cmd = "ffmpeg -f image2 -framerate 25 -i img/poly_%04d.png -vcodec libx264 -crf 22 video.mp4"
+    os.system(cmd)
+
+
 if __name__ == "__main__":
 
 
