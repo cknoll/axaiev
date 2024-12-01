@@ -8,8 +8,6 @@ from shapely.geometry import Polygon, Point, MultiPoint, MultiPolygon, LineStrin
 from shapely.ops import polygonize, unary_union
 from scipy.spatial import Voronoi, cKDTree
 
-from auxiliary import OneToOneMapping
-
 from ipydex import IPS, activate_ips_on_exception
 
 activate_ips_on_exception()
@@ -32,6 +30,7 @@ class ShapelyPolygonMonkeyPatcher:
     def doit(cls):
         Polygon.edges = cls.edges
         Polygon.corners = cls.corners
+        Polygon.label = property(cls.get_label, cls.set_label)
 
     def edges(self: Polygon, mode=None):
         ds = ShapelyPolygonMonkeyPatcher.data_store
@@ -83,6 +82,17 @@ class ShapelyPolygonMonkeyPatcher:
             else:
                 # p2[1] < p1[1] and p2[1] == p1[1]
                 return (p2, p1)
+
+    def get_label(self):
+        ds = ShapelyPolygonMonkeyPatcher.data_store
+        key = "label"
+        return ds[self].get(key)
+
+    def set_label(self, arg: str):
+        ds = ShapelyPolygonMonkeyPatcher.data_store
+        key = "label"
+        ds[self][key] = arg
+
 
 ShapelyPolygonMonkeyPatcher.doit()
 
@@ -418,6 +428,7 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         else:
             self.debug("new segment", self.partial_segment_pg)
             self.segments.append(self.partial_segment_pg)
+            self.partial_segment_pg.label = f"S{len(self.segments)}"
             # store the individual cells
             for pg in self.current_partial_segment_list:
                 self.cell_segment_map[pg] = self.partial_segment_pg
@@ -459,6 +470,8 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
         # overwrite old segment
         self.segments[idx] = merged_segment
+
+        smallest_neighbor.label = f"old_S{idx+1}"
 
         # return involved segments for debug_protocol
         return (self.partial_segment_pg, smallest_neighbor, merged_segment)
