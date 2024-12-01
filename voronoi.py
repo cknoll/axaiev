@@ -105,10 +105,16 @@ def get_poly_labels(pg_list: list[Polygon]):
 # #############################################################################
 
 # Function to generate a random polygon
-def generate_random_polygon(num_points=5):
+def generate_polygon(num_points=5, random=True):
     angle = np.linspace(0, 2 * np.pi, num_points, endpoint=False)
-    radius = np.random.rand(num_points) * 10  # Random radius
-    points = [(radius[i] * np.cos(angle[i]), radius[i] * np.sin(angle[i])) for i in range(num_points)]
+
+    if random:
+        radius = np.random.rand(num_points) * 10  # Random radius
+        points = [(radius[i] * np.cos(angle[i]), radius[i] * np.sin(angle[i])) for i in range(num_points)]
+    else:
+        # just approximate a circle
+        radius = 5
+        points = [(radius * np.cos(angle[i]), radius * np.sin(angle[i])) for i in range(num_points)]
     return Polygon(points)
 
 
@@ -213,9 +219,10 @@ class VoronoiMesher:
         minx, miny, maxx, maxy = self.main_pg.bounds
 
         # note: by `[1:-1]` we reduce the chance of possible boundary points
-        n = int(np.sqrt(num_points))
-        self._ip_xx = np.linspace(minx, maxx, n + 1)[1:-1]
-        self._ip_yy = np.linspace(miny, maxy, n + 1)[1:-1]
+        nx = int(np.sqrt(num_points)) - 2
+        ny = int(np.sqrt(num_points)) + 2
+        self._ip_xx = np.linspace(minx, maxx, nx + 1)[1:-1]
+        self._ip_yy = np.linspace(miny, maxy, ny + 1)[1:-1]
 
         square_grid = list(itertools.product(self._ip_xx, self._ip_yy))
         if self.hex:
@@ -223,8 +230,8 @@ class VoronoiMesher:
             dx = np.diff(self._ip_xx[:2])[0]
             dy = np.diff(self._ip_yy[:2])[0]
 
-            xx2 = np.linspace(min(self._ip_xx) - dx/2, max(self._ip_xx) + dx/2, n)
-            yy2 = np.linspace(min(self._ip_yy) - dy/2, max(self._ip_yy) + dy/2, n)
+            xx2 = np.linspace(min(self._ip_xx) - dx/2, max(self._ip_xx) + dx/2, nx)
+            yy2 = np.linspace(min(self._ip_yy) - dy/2, max(self._ip_yy) + dy/2, ny)
 
             square_grid2 = list(itertools.product(xx2, yy2))
 
@@ -316,8 +323,9 @@ class DebugProtocolMixin:
             plt.title(f"N = {n_corners}, Segment {sec_cntr - sec_cntr_diff}/{self.n_segments} ({i:04d})")
             plt.savefig(fpath.format(i))
 
-        render_video(dirpath, self.key)
-
+        # store copies of the last image to hold that frame in the video for 1s
+        for j in range(25):
+            plt.savefig(fpath.format(i + j + 1))
 
     def plot_labeled_segments(self, seq: list = None, segments = None):
         """
@@ -436,8 +444,6 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
         self.construct_last_segment()
         self.visualize_debug_protocol()
-
-        # plot_polygon_like_obj(None, start_pg, fc="tab:green", ec="red", alpha=0.9)
 
     def construct_segment(self, start_pg):
 
@@ -671,39 +677,41 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
         return pg_res
 
-def render_video(dirpath, key):
-    cmd = f"ffmpeg -f image2 -framerate 25 -i {dirpath}/poly_%04d.png -vcodec libx264 -crf 22 video_{key}.mp4"
+def render_video(dirpath=None, key=None):
+    # cmd = f"ffmpeg -y -f image2 -framerate 25 -i {dirpath}/poly_%04d.png -vcodec libx264 -crf 22 video_{key}.mp4"
+    cmd = "ffmpeg -framerate 25 -pattern_type glob -i 'img*/poly_*.png' -c:v libx264 -pix_fmt yuv420p all.mp4"
     os.system(cmd)
 
 
 if __name__ == "__main__":
 
 
-    np.random.seed(1642)
-    N = 5
+    np.random.seed(1215)
+    N = 15
     exterior = [(0, 0), (4, 0), (4, 4), (2, 3), (0, 4)]
-    polygons = [Polygon(exterior, )] + [generate_random_polygon(np.random.randint(5, 10)) for _ in range(N)]
+    circle_pg = generate_polygon(num_points=20, random=False)
+    # Polygon(exterior, )
+    polygons = [circle_pg, ] + [generate_polygon(np.random.randint(5, 10)) for _ in range(N)]
 
     # for development select the most difficult of them:
-    for main_pg in polygons[2:3]:
+    for main_pg in polygons:
 
         plt.figure()
         ax1 = plt.subplot(111)
 
         sc = SegmentCreator(main_pg)
-        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=50)
-        sc.do_segmentation(n_segments=10)
+        num_points = np.random.randint(40, 150)
+        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=num_points)
+        sc.do_segmentation(n_segments=int(num_points)/8)
 
-        plot_polygons(ax1, sc.inner_polys, ec="tab:blue", alpha=0.3)
-
-        plot_polygon_like_obj(ax1, main_pg, alpha=0.5)
-
-        ax1.scatter(*sc.inner_points.T, color='magenta', s=10, alpha=0.5)
-        ax1.scatter(*sc.boundary_coords.T, color='tab:orange', s=10, alpha=0.5)
-        ax1.axis("equal")
-
+        # useful for debugging the grid:
         if 0:
-            ax2 = plt.subplot(122)
-            ax2.hist(sc.areas)
+            plot_polygons(ax1, sc.inner_polys, ec="tab:blue", alpha=0.3)
+            plot_polygon_like_obj(ax1, main_pg, alpha=0.5)
 
-    plt.show()
+            ax1.scatter(*sc.inner_points.T, color='magenta', s=10, alpha=0.5)
+            # ax1.scatter(*sc.boundary_coords.T, color='tab:orange', s=10, alpha=0.5)
+            ax1.axis("equal")
+
+            plt.show()
+    render_video()
