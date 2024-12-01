@@ -18,6 +18,7 @@ activate_ips_on_exception()
 
 # #############################################################################
 
+
 class ShapelyPolygonMonkeyPatcher:
     """
     # Rationale: Polygon-is not recommended to subclass, see [1].
@@ -37,16 +38,16 @@ class ShapelyPolygonMonkeyPatcher:
         ds = ShapelyPolygonMonkeyPatcher.data_store
         key = ("edge_list", mode)
         edge_list = ds[self].get(key, None)
-        if  edge_list is not None:
+        if edge_list is not None:
             return edge_list
         b = self.boundary.coords
         if mode == "tuples":
-            edges = [tuple(b[k:k+2]) for k in range(len(b) - 1)]
+            edges = [tuple(b[k : k + 2]) for k in range(len(b) - 1)]
         elif mode == "sorted_tuples":
             se_tup = ShapelyPolygonMonkeyPatcher.sorted_edge_tuple
-            edges = [se_tup(b[k:k+2]) for k in range(len(b) - 1)]
+            edges = [se_tup(b[k : k + 2]) for k in range(len(b) - 1)]
         else:
-            edges = [LineString(b[k:k+2]) for k in range(len(b) - 1)]
+            edges = [LineString(b[k : k + 2]) for k in range(len(b) - 1)]
         ds[self][key] = edges
         return ds[self][key]
 
@@ -97,12 +98,14 @@ class ShapelyPolygonMonkeyPatcher:
 
 ShapelyPolygonMonkeyPatcher.doit()
 
+
 # this builds upon ShapelyPolygonMonkeyPatcher
 def get_poly_labels(pg_list: list[Polygon]):
     return [pg.label for pg in pg_list]
 
 
 # #############################################################################
+
 
 # Function to generate a random polygon
 def generate_polygon(num_points=5, random=True):
@@ -132,7 +135,7 @@ def plot_polygon_like_obj(ax, obj: Polygon, **kwargs):
 
     pg_label = kwargs.pop("pg_label", None)
 
-    kwargs_used = dict(fc='lightblue', ec='tab:blue', lw=3, label='Polygon', alpha=0.5)
+    kwargs_used = dict(fc="lightblue", ec="tab:blue", lw=3, label="Polygon", alpha=0.5)
     kwargs_used.update(kwargs)
     if isinstance(obj, Polygon):
         x_poly, y_poly = obj.exterior.xy
@@ -183,17 +186,23 @@ class VoronoiMesher:
         diff_x = np.diff(self._ip_xx[:2])[0]
         diff_y = np.diff(self._ip_yy[:2])[0]
 
-        dist = np.max((diff_x, diff_y))*2  # double the inner mesh-parameter to "ensure" the cell reaches outward
-        boundary_pg = self.main_pg.buffer(dist).envelope.boundary #Create a large rectangle surrounding it
+        dist = (
+            np.max((diff_x, diff_y)) * 2
+        )  # double the inner mesh-parameter to "ensure" the cell reaches outward
+        boundary_pg = self.main_pg.buffer(dist).envelope.boundary  # Create a large rectangle surrounding it
 
-        boundary_points = [boundary_pg.interpolate(distance=d, normalized=True) for d in np.linspace(0, 1, 100)[:-1]]
+        boundary_points = [
+            boundary_pg.interpolate(distance=d, normalized=True) for d in np.linspace(0, 1, 100)[:-1]
+        ]
         self.boundary_coords = np.array([[p.x, p.y] for p in boundary_points])
 
         # Create an array of all points on the boundary and inside the polygon
         self.all_coords = np.concatenate((self.boundary_coords, self.inner_points))
 
         self.vor = Voronoi(points=self.all_coords)
-        self.lines = [LineString(self.vor.vertices[line]) for line in self.vor.ridge_vertices if -1 not in line]
+        self.lines = [
+            LineString(self.vor.vertices[line]) for line in self.vor.ridge_vertices if -1 not in line
+        ]
 
         self.voronoi_polys = list(polygonize(self.lines))
 
@@ -230,8 +239,8 @@ class VoronoiMesher:
             dx = np.diff(self._ip_xx[:2])[0]
             dy = np.diff(self._ip_yy[:2])[0]
 
-            xx2 = np.linspace(min(self._ip_xx) - dx/2, max(self._ip_xx) + dx/2, nx)
-            yy2 = np.linspace(min(self._ip_yy) - dy/2, max(self._ip_yy) + dy/2, ny)
+            xx2 = np.linspace(min(self._ip_xx) - dx / 2, max(self._ip_xx) + dx / 2, nx)
+            yy2 = np.linspace(min(self._ip_yy) - dy / 2, max(self._ip_yy) + dy / 2, ny)
 
             square_grid2 = list(itertools.product(xx2, yy2))
 
@@ -278,6 +287,7 @@ class DebugProtocolMixin:
 
     def visualize_debug_protocol(self, base_name="poly"):
         from tqdm import tqdm
+
         self.plot_background()
         n_corners = len(self.main_pg.exterior.coords)
         i = 0
@@ -327,7 +337,7 @@ class DebugProtocolMixin:
         for j in range(25):
             plt.savefig(fpath.format(i + j + 1))
 
-    def plot_labeled_segments(self, seq: list = None, segments = None):
+    def plot_labeled_segments(self, seq: list = None, segments=None):
         """
         This method allows to draw the actual segments or earlier versions.
         """
@@ -366,7 +376,7 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self.partial_segment_pg = None
         self.current_rest_pg = None
         self.candidates_pgs: list = None
-        self.already_picked_pgs: dict[Polygon: bool] = {}
+        self.already_picked_pgs: dict[Polygon:bool] = {}
 
     def _fill_neighbor_map(self):
 
@@ -502,7 +512,7 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
             self.cell_segment_map[pg] = self.partial_segment_pg
         self.segment_cell_list_map[self.partial_segment_pg] = self.current_partial_segment_list
 
-    def merge_seg_with_neighbor_if_necessary(self) -> tuple[list, Polygon|MultiPolygon]:
+    def merge_seg_with_neighbor_if_necessary(self) -> tuple[list, Polygon | MultiPolygon]:
         """
         The recently created segment might be very small or in case of a MultiPolygon contain a small
         sub-segment. Then, this (sub-segment) should be merged with a neighbor.
@@ -547,8 +557,8 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
     def _merge_part_seg_with_neighbor_if_necessary(self, partial_seg_pg: Polygon, cell_list: list[Polygon]):
         assert isinstance(partial_seg_pg, Polygon)
 
-        rel_area = partial_seg_pg.area/self.target_segment_area
-        if rel_area > 1./3:
+        rel_area = partial_seg_pg.area / self.target_segment_area
+        if rel_area > 1.0 / 3:
             return
         # find neighbor-segments
         neighbor_cells = []
@@ -610,7 +620,9 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self.partial_segment_pg = unary_union(self.current_partial_segment_list)
 
         # estimate area after adding the next cell
-        est_relative_segment_area = (self.partial_segment_pg.area + self.avg_cell_area)/self.target_segment_area
+        est_relative_segment_area = (
+            self.partial_segment_pg.area + self.avg_cell_area
+        ) / self.target_segment_area
 
         if est_relative_segment_area > 1:
             # this segment would be too big with additional cell ()
@@ -655,7 +667,7 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
         rest_pg: Polygon = self.current_rest_pg.difference(partial_segment)
 
-        cost = rest_pg.length/rest_pg.area + partial_segment.length/partial_segment.area
+        cost = rest_pg.length / rest_pg.area + partial_segment.length / partial_segment.area
         if isinstance(rest_pg, MultiPolygon):
             # penalty for dividing the remaining polygon
             cost *= 10
@@ -677,6 +689,7 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
         return pg_res
 
+
 def render_video(dirpath=None, key=None):
     # cmd = f"ffmpeg -y -f image2 -framerate 25 -i {dirpath}/poly_%04d.png -vcodec libx264 -crf 22 video_{key}.mp4"
     cmd = "ffmpeg -framerate 25 -pattern_type glob -i 'img*/poly_*.png' -c:v libx264 -pix_fmt yuv420p all.mp4"
@@ -685,13 +698,14 @@ def render_video(dirpath=None, key=None):
 
 if __name__ == "__main__":
 
-
     np.random.seed(1215)
     N = 15
     exterior = [(0, 0), (4, 0), (4, 4), (2, 3), (0, 4)]
     circle_pg = generate_polygon(num_points=20, random=False)
     # Polygon(exterior, )
-    polygons = [circle_pg, ] + [generate_polygon(np.random.randint(5, 10)) for _ in range(N)]
+    polygons = [
+        circle_pg,
+    ] + [generate_polygon(np.random.randint(5, 10)) for _ in range(N)]
 
     # for development select the most difficult of them:
     for main_pg in polygons:
@@ -702,14 +716,14 @@ if __name__ == "__main__":
         sc = SegmentCreator(main_pg)
         num_points = np.random.randint(40, 150)
         inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=num_points)
-        sc.do_segmentation(n_segments=int(num_points)/8)
+        sc.do_segmentation(n_segments=int(num_points) / 8)
 
         # useful for debugging the grid:
         if 0:
             plot_polygons(ax1, sc.inner_polys, ec="tab:blue", alpha=0.3)
             plot_polygon_like_obj(ax1, main_pg, alpha=0.5)
 
-            ax1.scatter(*sc.inner_points.T, color='magenta', s=10, alpha=0.5)
+            ax1.scatter(*sc.inner_points.T, color="magenta", s=10, alpha=0.5)
             # ax1.scatter(*sc.boundary_coords.T, color='tab:orange', s=10, alpha=0.5)
             ax1.axis("equal")
 
