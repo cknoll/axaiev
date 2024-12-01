@@ -17,3 +17,5 @@
         - [x] start_pg für rest_pg finden.
     - [x] hexagonale Segmentierung
     - [x] sehr kleine Segmente an Nachbarn anfügen
+        - [] auch für MultiPolygon implementieren
+            - [] warum wird S6 als Nachbar-Segment erkannt?

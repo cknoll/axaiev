@@ -28,9 +28,10 @@ class ShapelyPolygonMonkeyPatcher:
 
     @classmethod
     def doit(cls):
-        Polygon.edges = cls.edges
-        Polygon.corners = cls.corners
-        Polygon.label = property(cls.get_label, cls.set_label)
+        for c in [Polygon, MultiPolygon]:
+            c.edges = cls.edges
+            c.corners = cls.corners
+            c.label = property(cls.get_label, cls.set_label)
 
     def edges(self: Polygon, mode=None):
         ds = ShapelyPolygonMonkeyPatcher.data_store
@@ -258,7 +259,6 @@ class DebugProtocolMixin:
             else:
                 new_args.append(copy.copy(arg))
 
-        IPS(len(self.debug_protocol) == 61)
         self.debug_protocol.append(new_args)
 
     def visualize_debug_protocol(self, base_name="poly"):
@@ -273,6 +273,10 @@ class DebugProtocolMixin:
 
         sec_cntr = 1
         for i, (msg, obj) in tqdm(list(enumerate(self.debug_protocol, start=1))):
+            if msg == "new segment":
+                sec_cntr += 1
+            if i < 270:
+                continue
 
             sec_cntr_diff = 0
             if msg == "start":
@@ -297,7 +301,6 @@ class DebugProtocolMixin:
             elif msg == "new segment":
                 new_segment, current_segments = obj
                 self.plot_labeled_segments(segments=current_segments)
-                sec_cntr += 1
                 sec_cntr_diff = 1  # increment title not yet
 
             plt.title(f"N = {n_corners}, Segment {sec_cntr - sec_cntr_diff}/{self.n_segments} ({i:04d})")
@@ -437,11 +440,16 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
             break_flag = self._optimization_loop_body()
             if break_flag:
                 break
-        merge_results = self.merge_seg_with_neighbor_if_necessary()
-        if merge_results:
-            too_small_segment, smallest_neighbor, merged_segment = merge_results
-            self.debug("merge segments", (too_small_segment, smallest_neighbor))
-            self.debug("new merged segment", (merged_segment, self.segments))
+        self.finalize_segment_construction()
+
+    def finalize_segment_construction(self):
+        merge_result_list = self.merge_seg_with_neighbor_if_necessary()
+        if len(merge_result_list) > 0:
+            assert isinstance(merge_result_list, list)
+            for merge_results in merge_result_list:
+                too_small_segment, smallest_neighbor, merged_segment = merge_results
+                self.debug("merge segments", (too_small_segment, smallest_neighbor))
+                self.debug("new merged segment", (merged_segment, self.segments))
         else:
             self.segments.append(self.partial_segment_pg)
             self.partial_segment_pg.label = f"S{len(self.segments)}"
@@ -451,13 +459,52 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
                 self.cell_segment_map[pg] = self.partial_segment_pg
             self.segment_cell_list_map[self.partial_segment_pg] = self.current_partial_segment_list
 
-    def merge_seg_with_neighbor_if_necessary(self):
-        rel_area = self.partial_segment_pg.area/self.target_segment_area
+    def merge_seg_with_neighbor_if_necessary(self) -> list:
+        """
+        The recently created segment might be very small or in case of a MultiPolygon contain a small
+        sub-segment. Then, this (sub-segment) should be merged with a neighbor.
+        """
+        processed_segment = self.partial_segment_pg
+
+        if isinstance(processed_segment, MultiPolygon):
+            part_seg_list = list(processed_segment.geoms)
+            cell_list_list = []
+            total_length = 0
+            for part_seg in part_seg_list:
+                cell_list = self._filter_cell_list(part_seg, self.current_partial_segment_list)
+                cell_list_list.append(cell_list)
+                total_length += len(cell_list)
+            # all cells should occur exactly once
+            assert total_length == len(self.current_partial_segment_list)
+        else:
+            part_seg_list = [processed_segment]
+            cell_list_list = [self.current_partial_segment_list]
+
+        res_list = []
+        for part_seg_pg, cell_list in zip(part_seg_list, cell_list_list):
+            res = self._merge_part_seg_with_neighbor_if_necessary(part_seg_pg, cell_list)
+            if res is not None:
+                res_list.append(res)
+
+        return res_list
+
+    def _filter_cell_list(self, reference_pg, candidate_cells):
+        res_cell_list = []
+        for pg in candidate_cells:
+            if reference_pg.intersects(pg):
+                res_cell_list.append(pg)
+
+        return res_cell_list
+
+    def _merge_part_seg_with_neighbor_if_necessary(self, partial_seg_pg: Polygon, cell_list: list[Polygon]):
+        assert isinstance(partial_seg_pg, Polygon)
+
+        rel_area = partial_seg_pg.area/self.target_segment_area
         if rel_area > 1./3:
             return
         # find neighbor-segments
         neighbor_cells = []
-        for pg in self.current_partial_segment_list:
+        for pg in cell_list:
             neighbor_cells.extend(self.pg_neighbor_map[pg])
 
         # find smallest neighbor_segment
@@ -477,11 +524,11 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
         # now merge the two segments:
         idx = self.segments.index(smallest_neighbor)
-        merged_segment = unary_union([self.partial_segment_pg, smallest_neighbor])
+        merged_segment = unary_union([partial_seg_pg, smallest_neighbor])
 
         # update cell <-> segment assignments:
         self.segment_cell_list_map[merged_segment] = []
-        for pg in self.segment_cell_list_map.pop(smallest_neighbor) + self.current_partial_segment_list:
+        for pg in self.segment_cell_list_map.pop(smallest_neighbor) + cell_list:
             self.cell_segment_map[pg] = merged_segment
             self.segment_cell_list_map[merged_segment].append(pg)
 
@@ -492,16 +539,20 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         smallest_neighbor.label = f"old_S{idx+1}"
 
         # return involved segments for debug_protocol
-        return (self.partial_segment_pg, smallest_neighbor, merged_segment)
+        return (partial_seg_pg, smallest_neighbor, merged_segment)
 
     def construct_last_segment(self):
-        self.current_partial_segment_list = [
-            pg for pg in self.inner_polys if not self.already_picked_pgs.get(pg)
-        ]
+        self.current_partial_segment_list = []
+        for pg in self.inner_polys:
+            if self.already_picked_pgs.get(pg):
+                continue
+            self.current_partial_segment_list.append(pg)
+            self.debug("pick", pg)
 
         self.partial_segment_pg = unary_union(self.current_partial_segment_list)
-        self.debug("new segment", (self.partial_segment_pg, self.segments))
-        self.segments.append(self.partial_segment_pg)
+        self.partial_segment_pg.label = "S_final"
+
+        self.finalize_segment_construction()
 
     def _optimization_loop_body(self) -> bool:
         """
