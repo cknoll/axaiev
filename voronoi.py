@@ -8,6 +8,8 @@ from shapely.geometry import Polygon, Point, MultiPoint, MultiPolygon, LineStrin
 from shapely.ops import polygonize, unary_union
 from scipy.spatial import Voronoi, cKDTree
 
+from auxiliary import OneToOneMapping
+
 from ipydex import IPS, activate_ips_on_exception
 
 activate_ips_on_exception()
@@ -250,9 +252,10 @@ class DebugProtocolMixin:
             sec_cntr_diff = 0
             if msg == "start":
                 plot_background()
-                plot_polygon_like_obj(None, obj, fc="tab:green", ec=None, alpha=1)
+                start_pg, current_segments = obj
+                plot_polygon_like_obj(None, start_pg, fc="tab:green", ec=None, alpha=1)
 
-                self.plot_labeled_segments(range(sec_cntr - 1))
+                self.plot_labeled_segments(segments=current_segments)
 
             elif msg == "test":
                 plot_polygon_like_obj(None, obj, fc="tab:orange", ec=None, alpha=1)
@@ -260,8 +263,12 @@ class DebugProtocolMixin:
                 plot_polygon_like_obj(None, obj, fc="tab:green", ec=None, alpha=1)
             elif msg == "candidates":
                 plot_polygons(None, obj, fc="tab:purple", ec=None, alpha=1)
+            elif msg == "merge segments":
+                plot_polygons(None, obj, fc="tab:cyan", ec=None, alpha=1)
+            elif msg == "new merged segment":
+                # like new segment but without increasing the counter
+                self.plot_labeled_segments(range(sec_cntr))
             elif msg == "new segment":
-                # plot_polygon_like_obj(None, obj, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1)
                 self.plot_labeled_segments(range(sec_cntr))
                 sec_cntr += 1
                 sec_cntr_diff = 1  # increment title not yet
@@ -269,7 +276,14 @@ class DebugProtocolMixin:
             plt.title(f"N = {n_corners}, Segment {sec_cntr - sec_cntr_diff}/{self.n_segments} ({i:04d})")
             plt.savefig(fpath.format(i))
 
-    def plot_labeled_segments(self, seq: list):
+    def plot_labeled_segments(self, seq: list = None, segments = None):
+        """
+        This method allows to draw the actual segments or earlier versions.
+        """
+        if segments is None:
+            segments = self.segments
+        if seq is None:
+            seq = range(len(segments))
         for idx in seq:
             segment_pg = self.segments[idx]
             plot_polygon_like_obj(
@@ -284,7 +298,13 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self.vertex_y_map = defaultdict(list)
         self.vertex_y_map_items = None
         self.edge_pg_map = defaultdict(list)
-        self.pg_neighbor_map = {}
+        # map cell to list of neighbors
+        self.pg_neighbor_map: dict[Polygon, Polygon] = {}
+
+        # map cell to its assigned segment
+        self.cell_segment_map: dict[Polygon, Polygon] = {}
+        # map segment to its cells
+        self.segment_cell_list_map: dict[Polygon, list] = {}
 
         self.n_segments: int = None
         self.main_pg_area = self.main_pg.area
@@ -384,14 +404,64 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self.candidates_pgs = []
         self._add_neighbors_to_candidates(start_pg)
 
-        self.debug("start", start_pg)
+        self.debug("start", (start_pg, self.segments))
         self.debug("candidates", self.candidates_pgs)
         while True:
             break_flag = self._optimization_loop_body()
             if break_flag:
                 break
-        self.debug("new segment", self.partial_segment_pg)
-        self.segments.append(self.partial_segment_pg)
+        merge_results = self.merge_seg_with_neighbor_if_necessary()
+        if merge_results:
+            too_small_segment, smallest_neighbor, merged_segment = merge_results
+            self.debug("merge segments", (too_small_segment, smallest_neighbor))
+            self.debug("new merged segment", merged_segment)
+        else:
+            self.debug("new segment", self.partial_segment_pg)
+            self.segments.append(self.partial_segment_pg)
+            # store the individual cells
+            for pg in self.current_partial_segment_list:
+                self.cell_segment_map[pg] = self.partial_segment_pg
+            self.segment_cell_list_map[self.partial_segment_pg] = self.current_partial_segment_list
+
+    def merge_seg_with_neighbor_if_necessary(self):
+        rel_area = self.partial_segment_pg.area/self.target_segment_area
+        if rel_area > 1./3:
+            return
+        # find neighbor-segments
+        neighbor_cells = []
+        for pg in self.current_partial_segment_list:
+            neighbor_cells.extend(self.pg_neighbor_map[pg])
+
+        # find smallest neighbor_segment
+        min_area = float("inf")
+        smallest_neighbor = None
+        neighbor_segments = []
+        for nb_pg in set(neighbor_cells):
+            seg = self.cell_segment_map.get(nb_pg)
+            if seg is not None:
+                neighbor_segments.append(seg)
+                if seg.area < min_area:
+                    min_area = seg.area
+                    smallest_neighbor = seg
+
+        if smallest_neighbor is None:
+            return
+
+        # now merge the two segments:
+        idx = self.segments.index(smallest_neighbor)
+        merged_segment = unary_union([self.partial_segment_pg, smallest_neighbor])
+
+        # update cell <-> segment assignments:
+        self.segment_cell_list_map[merged_segment] = []
+        for pg in self.segment_cell_list_map.pop(smallest_neighbor) + self.current_partial_segment_list:
+            self.cell_segment_map[pg] = merged_segment
+            self.segment_cell_list_map[merged_segment].append(pg)
+
+        # overwrite old segment
+        self.segments[idx] = merged_segment
+
+        # return involved segments for debug_protocol
+        return (self.partial_segment_pg, smallest_neighbor, merged_segment)
 
     def construct_last_segment(self):
         self.current_partial_segment_list = [
@@ -456,6 +526,9 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         rest_pg: Polygon = self.current_rest_pg.difference(partial_segment)
 
         cost = rest_pg.length/rest_pg.area + partial_segment.length/partial_segment.area
+        if isinstance(rest_pg, MultiPolygon):
+            # penalty for dividing the remaining polygon
+            cost *= 10
         return cost
 
     def _select_min_x_pg(self, pg_list: list[Polygon]) -> Polygon:

@@ -15,8 +15,5 @@
             - [x] Fehler finden
             - [x] debug-visualisierung verbessern
         - [x] start_pg für rest_pg finden.
-    - [] Zielflächeninhalt für jedes segment bestimmen mit Toleranz
-    - [] ich weiß die Anzahl an pixeln
-    - [] ich suche den Masken-Punkt mit der geringsten x-Koordinate und geringsten y-Koordinate
-    - [] subtrahiere von dort ein rechteck (fast-quadrat) möglichst passender größe
-    - [] verteile die restlichen Pixel auf ein Rechteck und mache das gleiche wieder
+    - [x] hexagonale Segmentierung
+    - [x] sehr kleine Segmente an Nachbarn anfügen
