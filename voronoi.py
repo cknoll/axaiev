@@ -161,7 +161,7 @@ class VoronoiMesher:
         self.id = next(self._id_counter)
 
         if key is None:
-            key = str(self.id)
+            key = f"{self.id:03d}"
         self.key = key
 
         self.main_pg = main_pg
@@ -221,7 +221,10 @@ class VoronoiMesher:
         self.avg_cell_area = np.average(self.areas)
 
         # ensure that the mesh cells cover main_pg with suitable precision
-        assert abs(self.main_pg.area - np.sum(self.areas)) / self.main_pg.area < 1e-5
+        if not  abs(self.main_pg.area - np.sum(self.areas)) / self.main_pg.area < 1e-5:
+            msg = "inner polygons do not precisely cover the original polygon"
+            raise ValueError(msg)
+
         return self.inner_polys
 
     def create_mesh_for_inner_points(self, num_points):
@@ -453,7 +456,6 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
             self._update_vertex_map_items()
 
         self.construct_last_segment()
-        self.visualize_debug_protocol()
 
     def construct_segment(self, start_pg):
 
@@ -708,15 +710,23 @@ if __name__ == "__main__":
     ] + [generate_polygon(np.random.randint(5, 10)) for _ in range(N)]
 
     # for development select the most difficult of them:
-    for main_pg in polygons:
+    for i, main_pg in enumerate(polygons):
 
         plt.figure()
         ax1 = plt.subplot(111)
 
-        sc = SegmentCreator(main_pg)
-        num_points = np.random.randint(40, 150)
-        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=num_points)
-        sc.do_segmentation(n_segments=int(num_points) / 8)
+        sc = SegmentCreator(main_pg, key=f"{i:03d}")
+        num_points = 100 # np.random.randint(40, 150)
+        try:
+            inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=num_points)
+        except ValueError as ex:
+            print(f"Warning: {str(ex)}")
+            continue
+        sc.do_segmentation(n_segments=int(num_points / 8))
+
+        # omit finished shapes
+        if i >= 12:
+            sc.visualize_debug_protocol()
 
         # useful for debugging the grid:
         if 0:

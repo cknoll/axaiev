@@ -1,6 +1,5 @@
 - [] implement segmentation
     - [] maske in Polygon verwandeln
-    - [] Gesamtfläche ermitteln,
     - [x] Polygon mit Gitter überziehen
         - [x] sicherstellen, dass keine Zelle zu groß ist -> histogramme sehen erstmal unproblematisch aus
     - [x] Start-Zelle finden
@@ -20,4 +19,4 @@
         - [x] auch für MultiPolygon implementieren
             - [x] warum wird S6 als Nachbar-Segment erkannt? -> cell_list wurde noch nicht verwendet
             - [x] remaining_segment_parts behandeln
-    - [] Label-Dopplung nach mergen verhindern
+    - [x] Label-Dopplung nach mergen verhindern
