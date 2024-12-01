@@ -1,5 +1,6 @@
 import os
 import copy
+import itertools
 from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
@@ -128,8 +129,9 @@ def plot_polygon_like_obj(ax, obj: Polygon, **kwargs):
 
 
 class VoronoiMesher:
-    def __init__(self, main_pg: Polygon):
+    def __init__(self, main_pg: Polygon, hex=True):
         self.main_pg = main_pg
+        self.hex = hex
         self.inner_polys = None
         self.boundary_coords = None
         self.inner_points = None
@@ -185,15 +187,35 @@ class VoronoiMesher:
         minx, miny, maxx, maxy = self.main_pg.bounds
 
         # note: by `[1:-1]` we reduce the chance of possible boundary points
-        self._ip_xx = np.linspace(minx, maxx, int(np.sqrt(num_points)) + 1)[1:-1]
-        self._ip_yy = np.linspace(miny, maxy, int(np.sqrt(num_points)) + 1)[1:-1]
+        n = int(np.sqrt(num_points))
+        self._ip_xx = np.linspace(minx, maxx, n + 1)[1:-1]
+        self._ip_yy = np.linspace(miny, maxy, n + 1)[1:-1]
+
+        square_grid = list(itertools.product(self._ip_xx, self._ip_yy))
+        if self.hex:
+            # for hexagons we add intermediate points
+            dx = np.diff(self._ip_xx[:2])[0]
+            dy = np.diff(self._ip_yy[:2])[0]
+
+            xx2 = np.linspace(min(self._ip_xx) - dx/2, max(self._ip_xx) + dx/2, n)
+            yy2 = np.linspace(min(self._ip_yy) - dy/2, max(self._ip_yy) + dy/2, n)
+
+            square_grid2 = list(itertools.product(xx2, yy2))
+
+            # for testing:
+            if 0:
+                plt.scatter(*np.array(list(square_grid)).T)
+                plt.scatter(*np.array(list(square_grid2)).T)
+                plt.show()
+                exit()
+            grid = square_grid + square_grid2
+        else:
+            grid = square_grid
 
         mesh_points = []
-        for x in self._ip_xx:
-            for y in self._ip_yy:
-                point = (x, y)
-                if self.main_pg.contains(Point(point)):
-                    mesh_points.append(point)
+        for point in grid:
+            if self.main_pg.contains(Point(point)):
+                mesh_points.append(point)
 
         return np.array(mesh_points)
 
@@ -224,9 +246,6 @@ class DebugProtocolMixin:
 
         sec_cntr = 1
         for i, (msg, obj) in tqdm(list(enumerate(self.debug_protocol, start=1))):
-            if i < 761:
-                continue
-            sec_cntr = 10
 
             sec_cntr_diff = 0
             if msg == "start":
@@ -234,7 +253,6 @@ class DebugProtocolMixin:
                 plot_polygon_like_obj(None, obj, fc="tab:green", ec=None, alpha=1)
 
                 self.plot_labeled_segments(range(sec_cntr - 1))
-
 
             elif msg == "test":
                 plot_polygon_like_obj(None, obj, fc="tab:orange", ec=None, alpha=1)
@@ -477,7 +495,7 @@ if __name__ == "__main__":
         ax1 = plt.subplot(111)
 
         sc = SegmentCreator(main_pg)
-        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=200)
+        inner_polys = sc.create_voronoi_mesh_for_polygon(num_points=50)
         sc.do_segmentation(n_segments=10)
 
         plot_polygons(ax1, sc.inner_polys, ec="tab:blue", alpha=0.3)
