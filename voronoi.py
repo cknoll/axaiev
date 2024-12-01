@@ -106,6 +106,8 @@ def plot_polygon_like_obj(ax, obj: Polygon, **kwargs):
     if ax is None:
         ax = plt.gca()
 
+    pg_label = kwargs.pop("pg_label", None)
+
     kwargs_used = dict(fc='lightblue', ec='tab:blue', lw=3, label='Polygon', alpha=0.5)
     kwargs_used.update(kwargs)
     if isinstance(obj, Polygon):
@@ -113,11 +115,16 @@ def plot_polygon_like_obj(ax, obj: Polygon, **kwargs):
     elif isinstance(obj, LineString):
         x_poly, y_poly = obj.xy
     elif isinstance(obj, MultiPolygon):
+        kwargs["pg_label"] = pg_label
         return plot_polygons(ax, obj.geoms, **kwargs)
     else:
         raise TypeError
 
     ax.fill(x_poly, y_poly, **kwargs_used)
+    if pg_label:
+        assert isinstance(pg_label, str)
+        centroid_xy = np.array(obj.centroid.coords).squeeze()
+        plt.text(*centroid_xy, pg_label)
 
 
 class VoronoiMesher:
@@ -217,16 +224,17 @@ class DebugProtocolMixin:
 
         sec_cntr = 1
         for i, (msg, obj) in tqdm(list(enumerate(self.debug_protocol, start=1))):
+            if i < 761:
+                continue
+            sec_cntr = 10
+
             sec_cntr_diff = 0
             if msg == "start":
                 plot_background()
                 plot_polygon_like_obj(None, obj, fc="tab:green", ec=None, alpha=1)
 
-                for idx in range(sec_cntr - 1):
-                    segment_pg = self.segments[idx]
-                    plot_polygon_like_obj(None, segment_pg, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1)
-                    centroid_xy = np.array(segment_pg.centroid.coords).squeeze()
-                    plt.text(*centroid_xy, str(idx + 1))
+                self.plot_labeled_segments(range(sec_cntr - 1))
+
 
             elif msg == "test":
                 plot_polygon_like_obj(None, obj, fc="tab:orange", ec=None, alpha=1)
@@ -235,12 +243,20 @@ class DebugProtocolMixin:
             elif msg == "candidates":
                 plot_polygons(None, obj, fc="tab:purple", ec=None, alpha=1)
             elif msg == "new segment":
-                plot_polygon_like_obj(None, obj, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1)
+                # plot_polygon_like_obj(None, obj, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1)
+                self.plot_labeled_segments(range(sec_cntr))
                 sec_cntr += 1
                 sec_cntr_diff = 1  # increment title not yet
 
             plt.title(f"N = {n_corners}, Segment {sec_cntr - sec_cntr_diff}/{self.n_segments} ({i:04d})")
             plt.savefig(fpath.format(i))
+
+    def plot_labeled_segments(self, seq: list):
+        for idx in seq:
+            segment_pg = self.segments[idx]
+            plot_polygon_like_obj(
+                None, segment_pg, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1, pg_label=str(idx + 1)
+            )
 
 
 class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
