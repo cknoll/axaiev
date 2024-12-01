@@ -96,6 +96,10 @@ class ShapelyPolygonMonkeyPatcher:
 
 ShapelyPolygonMonkeyPatcher.doit()
 
+# this builds upon ShapelyPolygonMonkeyPatcher
+def get_poly_labels(pg_list: list[Polygon]):
+    return [pg.label for pg in pg_list]
+
 
 # #############################################################################
 
@@ -186,6 +190,7 @@ class VoronoiMesher:
             if intersection_pg.is_empty:
                 continue
             self.inner_polys.append(intersection_pg)
+            intersection_pg.label = f"c{len(self.inner_polys)}"
             self.areas.append(intersection_pg.area)
 
         self.areas = np.array(self.areas)
@@ -231,6 +236,11 @@ class VoronoiMesher:
 
         return np.array(mesh_points)
 
+    def plot_background(self):
+        plt.cla()
+        plot_polygon_like_obj(None, self.main_pg, alpha=0.1)
+        plot_polygons(None, self.inner_polys, fc=None, ec="black", lw=0.5, alpha=0.3)
+
 
 class DebugProtocolMixin:
     def debug(self, *args):
@@ -238,17 +248,22 @@ class DebugProtocolMixin:
             self.debug_protocol = []
 
         # store a snapshot of relevant data structures
-        new_args = [copy.copy(arg) for arg in args]
+        new_args = []
+        # manually perform medium deep copy
+        for arg in args:
+            if isinstance(arg, (list, tuple)):
+                cls = type(arg)
+                res = [copy.copy(elt) for elt in arg]
+                new_args.append(cls(res))
+            else:
+                new_args.append(copy.copy(arg))
+
+        IPS(len(self.debug_protocol) == 61)
         self.debug_protocol.append(new_args)
 
     def visualize_debug_protocol(self, base_name="poly"):
         from tqdm import tqdm
-        def plot_background():
-            plt.cla()
-            plot_polygon_like_obj(None, self.main_pg, alpha=0.1)
-            plot_polygons(None, self.inner_polys, fc=None, ec="black", lw=0.5, alpha=0.3)
-
-        plot_background()
+        self.plot_background()
         n_corners = len(self.main_pg.exterior.coords)
         i = 0
         plt.title(f"N = {n_corners}, #Segments = {self.n_segments} ({i:04d})")
@@ -261,7 +276,7 @@ class DebugProtocolMixin:
 
             sec_cntr_diff = 0
             if msg == "start":
-                plot_background()
+                self.plot_background()
                 start_pg, current_segments = obj
                 plot_polygon_like_obj(None, start_pg, fc="tab:green", ec=None, alpha=1)
 
@@ -277,9 +292,11 @@ class DebugProtocolMixin:
                 plot_polygons(None, obj, fc="tab:cyan", ec=None, alpha=1)
             elif msg == "new merged segment":
                 # like new segment but without increasing the counter
-                self.plot_labeled_segments(range(sec_cntr))
+                new_segment, current_segments = obj
+                self.plot_labeled_segments(segments=current_segments)
             elif msg == "new segment":
-                self.plot_labeled_segments(range(sec_cntr))
+                new_segment, current_segments = obj
+                self.plot_labeled_segments(segments=current_segments)
                 sec_cntr += 1
                 sec_cntr_diff = 1  # increment title not yet
 
@@ -295,7 +312,7 @@ class DebugProtocolMixin:
         if seq is None:
             seq = range(len(segments))
         for idx in seq:
-            segment_pg = self.segments[idx]
+            segment_pg = segments[idx]
             plot_polygon_like_obj(
                 None, segment_pg, fc="tab:blue", ec="tab:orange", lw=0.5, alpha=1, pg_label=str(idx + 1)
             )
@@ -424,11 +441,11 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         if merge_results:
             too_small_segment, smallest_neighbor, merged_segment = merge_results
             self.debug("merge segments", (too_small_segment, smallest_neighbor))
-            self.debug("new merged segment", merged_segment)
+            self.debug("new merged segment", (merged_segment, self.segments))
         else:
-            self.debug("new segment", self.partial_segment_pg)
             self.segments.append(self.partial_segment_pg)
             self.partial_segment_pg.label = f"S{len(self.segments)}"
+            self.debug("new segment", (self.partial_segment_pg, self.segments))
             # store the individual cells
             for pg in self.current_partial_segment_list:
                 self.cell_segment_map[pg] = self.partial_segment_pg
@@ -470,6 +487,7 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
         # overwrite old segment
         self.segments[idx] = merged_segment
+        merged_segment.label = smallest_neighbor.label
 
         smallest_neighbor.label = f"old_S{idx+1}"
 
@@ -482,7 +500,7 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         ]
 
         self.partial_segment_pg = unary_union(self.current_partial_segment_list)
-        self.debug("new segment", self.partial_segment_pg)
+        self.debug("new segment", (self.partial_segment_pg, self.segments))
         self.segments.append(self.partial_segment_pg)
 
     def _optimization_loop_body(self) -> bool:
@@ -559,7 +577,6 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
                 pg_res = pg
 
         return pg_res
-
 
 def render_video():
     cmd = "ffmpeg -f image2 -framerate 25 -i img/poly_%04d.png -vcodec libx264 -crf 22 video.mp4"
