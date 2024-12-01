@@ -8,5 +8,5 @@ git_bundle*.zip
 *.sqlite
 tmp*
 *.log
-img/*
+img*/*
 *.mp4

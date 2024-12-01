@@ -146,7 +146,15 @@ def plot_polygon_like_obj(ax, obj: Polygon, **kwargs):
 
 
 class VoronoiMesher:
-    def __init__(self, main_pg: Polygon, hex=True):
+    _id_counter = itertools.count(0)
+
+    def __init__(self, main_pg: Polygon, hex=True, key=None):
+        self.id = next(self._id_counter)
+
+        if key is None:
+            key = str(self.id)
+        self.key = key
+
         self.main_pg = main_pg
         self.hex = hex
         self.inner_polys = None
@@ -268,15 +276,16 @@ class DebugProtocolMixin:
         i = 0
         plt.title(f"N = {n_corners}, #Segments = {self.n_segments} ({i:04d})")
 
-        fpath = os.path.join("img", base_name + "_{:04d}.png")
+        dirpath = f"img_{self.key}"
+        os.makedirs(dirpath, exist_ok=True)
+
+        fpath = os.path.join(dirpath, base_name + "_{:04d}.png")
         plt.savefig(fpath.format(0))
 
         sec_cntr = 1
         for i, (msg, obj) in tqdm(list(enumerate(self.debug_protocol, start=1))):
             if msg == "new segment":
                 sec_cntr += 1
-            if i < 270:
-                continue
 
             sec_cntr_diff = 0
             if msg == "start":
@@ -297,6 +306,7 @@ class DebugProtocolMixin:
             elif msg == "new merged segment":
                 # like new segment but without increasing the counter
                 new_segment, current_segments = obj
+                self.plot_background()
                 self.plot_labeled_segments(segments=current_segments)
             elif msg == "new segment":
                 new_segment, current_segments = obj
@@ -305,6 +315,9 @@ class DebugProtocolMixin:
 
             plt.title(f"N = {n_corners}, Segment {sec_cntr - sec_cntr_diff}/{self.n_segments} ({i:04d})")
             plt.savefig(fpath.format(i))
+
+        render_video(dirpath, self.key)
+
 
     def plot_labeled_segments(self, seq: list = None, segments = None):
         """
@@ -658,8 +671,8 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
 
         return pg_res
 
-def render_video():
-    cmd = "ffmpeg -f image2 -framerate 25 -i img/poly_%04d.png -vcodec libx264 -crf 22 video.mp4"
+def render_video(dirpath, key):
+    cmd = f"ffmpeg -f image2 -framerate 25 -i {dirpath}/poly_%04d.png -vcodec libx264 -crf 22 video_{key}.mp4"
     os.system(cmd)
 
 
