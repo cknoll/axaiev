@@ -17,5 +17,7 @@
         - [x] start_pg für rest_pg finden.
     - [x] hexagonale Segmentierung
     - [x] sehr kleine Segmente an Nachbarn anfügen
-        - [] auch für MultiPolygon implementieren
-            - [] warum wird S6 als Nachbar-Segment erkannt?
+        - [x] auch für MultiPolygon implementieren
+            - [x] warum wird S6 als Nachbar-Segment erkannt? -> cell_list wurde noch nicht verwendet
+            - [x] remaining_segment_parts behandeln
+    - [] Label-Dopplung nach mergen verhindern

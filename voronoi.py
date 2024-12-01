@@ -443,23 +443,47 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
         self.finalize_segment_construction()
 
     def finalize_segment_construction(self):
-        merge_result_list = self.merge_seg_with_neighbor_if_necessary()
+        """
+        Maybe merge the segment or parts of it with others, then maybe create a new segment
+        from the remainder.
+        """
+        merge_result_list, remainder_parts = self.merge_seg_with_neighbor_if_necessary()
         if len(merge_result_list) > 0:
             assert isinstance(merge_result_list, list)
             for merge_results in merge_result_list:
                 too_small_segment, smallest_neighbor, merged_segment = merge_results
                 self.debug("merge segments", (too_small_segment, smallest_neighbor))
                 self.debug("new merged segment", (merged_segment, self.segments))
-        else:
-            self.segments.append(self.partial_segment_pg)
-            self.partial_segment_pg.label = f"S{len(self.segments)}"
-            self.debug("new segment", (self.partial_segment_pg, self.segments))
-            # store the individual cells
-            for pg in self.current_partial_segment_list:
-                self.cell_segment_map[pg] = self.partial_segment_pg
-            self.segment_cell_list_map[self.partial_segment_pg] = self.current_partial_segment_list
 
-    def merge_seg_with_neighbor_if_necessary(self) -> list:
+            if remainder_parts:
+                if len(remainder_parts) >= 1:
+                    part_pg_list, cell_list_list = zip(*remainder_parts)
+                    self.partial_segment_pg = MultiPolygon(part_pg_list)
+                    self.current_partial_segment_list = []
+                    for cell_list in cell_list_list:
+                        self.current_partial_segment_list.extend(cell_list)
+                else:
+                    self.partial_segment_pg, self.current_partial_segment_list = remainder_parts
+
+                self._create_new_segment()
+
+        else:
+            # there was no merging
+            self._create_new_segment()
+
+    def _create_new_segment(self):
+        """
+        Collect the processed information and form new segment
+        """
+        self.segments.append(self.partial_segment_pg)
+        self.partial_segment_pg.label = f"S{len(self.segments)}"
+        self.debug("new segment", (self.partial_segment_pg, self.segments))
+        # store the individual cells
+        for pg in self.current_partial_segment_list:
+            self.cell_segment_map[pg] = self.partial_segment_pg
+        self.segment_cell_list_map[self.partial_segment_pg] = self.current_partial_segment_list
+
+    def merge_seg_with_neighbor_if_necessary(self) -> tuple[list, Polygon|MultiPolygon]:
         """
         The recently created segment might be very small or in case of a MultiPolygon contain a small
         sub-segment. Then, this (sub-segment) should be merged with a neighbor.
@@ -480,13 +504,18 @@ class SegmentCreator(VoronoiMesher, DebugProtocolMixin):
             part_seg_list = [processed_segment]
             cell_list_list = [self.current_partial_segment_list]
 
+        # contains information about the merged parts
         res_list = []
+        # contains information about the non-merged parts
+        remainder_parts = []
         for part_seg_pg, cell_list in zip(part_seg_list, cell_list_list):
             res = self._merge_part_seg_with_neighbor_if_necessary(part_seg_pg, cell_list)
             if res is not None:
                 res_list.append(res)
+            else:
+                remainder_parts.append((part_seg_pg, cell_list))
 
-        return res_list
+        return res_list, remainder_parts
 
     def _filter_cell_list(self, reference_pg, candidate_cells):
         res_cell_list = []
