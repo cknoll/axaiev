@@ -122,7 +122,7 @@ def visualize_polygons(original_polygons):
         segments = subdivide_polygon(polygon, N)
 
         # Plot original polygon
-        x,y = polygon.exterior.xy
+        x, y = polygon.exterior.xy
         ax.plot(x, y, color='blue', linewidth=2, label='Original Polygon')
 
         # Plot segments

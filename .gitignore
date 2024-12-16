@@ -3,6 +3,11 @@
 
 # this can be used to easily backup the repo in one file
 git_bundle*.zip
+_git_bundle*.zip
+
+obsolete*
+result_data*
+
 
 
 *.sqlite
