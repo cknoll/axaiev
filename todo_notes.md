@@ -1,3 +1,7 @@
+
+- [] ? Wie gehe ich mit (fast) gleichen Maskenformen um (Kreise) -> gleiche Segmentierung
+    - Wie unterschiedlich sind die Masken?
+
 - [] implement segmentation
     - [] maske in Polygon verwandeln
     - [x] Polygon mit Gitter überziehen
