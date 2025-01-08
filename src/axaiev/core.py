@@ -3,7 +3,7 @@ import glob
 
 import numpy as np
 import cv2
-from shapely import Polygon
+from shapely import Polygon, affinity
 import matplotlib.pyplot as plt
 
 from ipydex import IPS
@@ -30,11 +30,21 @@ def polygon_based_mask_processing(mask_dir: str):
     img = load_img(mask_files[0])
 
     pg = get_polygon_from_mask_img(img)
+    IPS()
     plot_polygon_like_obj(None, pg)
+
     plt.show()
 
 
+def normalize_polygon(polygon):
+    minx, miny, _, _ = polygon.bounds
+    return affinity.translate(polygon, xoff=-minx, yoff=-miny)
+
+
 def get_polygon_from_mask_img(image: np.ndarray):
+
+    if len(image.shape) == 3 and image.shape[-1] == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     # Find contours
     contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -47,6 +57,7 @@ def get_polygon_from_mask_img(image: np.ndarray):
     pg = Polygon(approx.reshape(-1, 2))
 
     # edges = np.array(pg.edges(mode="tuples")).astype(int)
+    return pg
 
 
 def load_img(fpath, rgb=False):

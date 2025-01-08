@@ -1,6 +1,8 @@
 
 - [] ? Wie gehe ich mit (fast) gleichen Maskenformen um (Kreise) -> gleiche Segmentierung
     - Wie unterschiedlich sind die Masken?
+        - Polygone für Masken von verschiedenen Bildern erstellen und vergleichen
+    - -> Ab einer bestimmten Ähnlichkeit sollten die Masken auf den gleichen Polygon abgebildet werden.
 
 - [] implement segmentation
     - [] maske in Polygon verwandeln
