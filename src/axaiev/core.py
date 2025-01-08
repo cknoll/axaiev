@@ -1,5 +1,6 @@
 import os
 import glob
+from itertools import cycle
 
 import numpy as np
 import cv2
@@ -27,11 +28,20 @@ def polygon_based_mask_processing(mask_dir: str):
     pattern = pjoin(mask_dir, "*", "*.png")
     mask_files = glob.glob(pattern)
 
-    img = load_img(mask_files[0])
+    color_cycler = cycle(("tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"))
 
-    pg = get_polygon_from_mask_img(img)
-    IPS()
-    plot_polygon_like_obj(None, pg)
+    for i in range(8):
+        img = load_img(mask_files[i])
+        pg = get_polygon_from_mask_img(img)
+        plot_polygon_like_obj(
+            None,
+            pg,
+            mode="plot",
+            ls="",
+            marker=".",
+            markersize=10 * (0.5 + 1.5 / (i + 1)),
+            color=next(color_cycler),
+        )
 
     plt.show()
 
@@ -54,10 +64,12 @@ def get_polygon_from_mask_img(image: np.ndarray):
     approx = cv2.approxPolyDP(contours[0], epsilon, True)
 
     # Convert to Shapely polygon
-    pg = Polygon(approx.reshape(-1, 2))
+    pg0 = Polygon(approx.reshape(-1, 2))
+
+    pg1 = normalize_polygon(pg0)
 
     # edges = np.array(pg.edges(mode="tuples")).astype(int)
-    return pg
+    return pg1
 
 
 def load_img(fpath, rgb=False):

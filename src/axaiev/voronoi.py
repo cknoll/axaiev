@@ -147,7 +147,15 @@ def plot_polygon_like_obj(ax, obj: Polygon, **kwargs):
     else:
         raise TypeError
 
-    ax.fill(x_poly, y_poly, **kwargs_used)
+    mode = kwargs_used.pop("mode", "fill")
+    if mode == "fill":
+        ax.fill(x_poly, y_poly, **kwargs_used)
+    elif mode == "scatter":
+        ax.scatter(x_poly, y_poly, **kwargs_used)
+    elif mode == "plot":
+        kwargs_used.pop("fc", None)
+        kwargs_used.pop("ec", None)
+        ax.plot(x_poly, y_poly, **kwargs_used)
     if pg_label:
         assert isinstance(pg_label, str)
         centroid_xy = np.array(obj.centroid.coords).squeeze()
