@@ -1,8 +1,11 @@
 
 - [] ? Wie gehe ich mit (fast) gleichen Maskenformen um (Kreise) -> gleiche Segmentierung
     - Wie unterschiedlich sind die Masken?
-        - Polygone für Masken von verschiedenen Bildern erstellen und vergleichen
+        - [x] Polygone für Masken von verschiedenen Bildern erstellen und vergleichen
     - -> Ab einer bestimmten Ähnlichkeit sollten die Masken auf den gleichen Polygon abgebildet werden.
+
+- [] Methode ausdenken, wie ich für jedes Bild die Relevanz-Reihenfolge der einzelnen Segmente bestimme
+    - -> biscetion -> implementieren
 
 - [] implement segmentation
     - [] maske in Polygon verwandeln
